@@ -1,0 +1,252 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { readFile } = require("node:fs/promises");
+const { join } = require("node:path");
+const { canAccess, defaultView, pickRole, reportFields, reportSummaryEntries, formatReportDate, dashboardMetrics, reportChartData, crudActionPayload, rowActions, actionPopoverPosition } = require("./admin.js");
+
+test("staff navigation reflects the role while manager can inspect every supported view", () => {
+  assert.equal(canAccess("warehouse", "inventory"), true);
+  assert.equal(canAccess("warehouse", "reports"), false);
+  assert.equal(canAccess("sales", "promotions"), true);
+  assert.equal(canAccess("customer", "orders"), false);
+  assert.equal(canAccess("manager", "customers"), true);
+  assert.equal(canAccess("manager", "master-data"), true);
+  assert.equal(canAccess("manager", "users"), false);
+  assert.equal(canAccess("manager", "reviews"), false);
+});
+
+test("admin sidebar hides the reports menu item", async () => {
+  const source = await readFile(join(__dirname, "..", "admin.html"), "utf8");
+  assert.doesNotMatch(source, /href="admin\.html\?view=reports"/);
+  assert.doesNotMatch(source, /<span class="side-link-label">Báo cáo<\/span>/);
+});
+
+test("home intro uses a full-bleed blurred image with a readable overlay", async () => {
+  const source = await readFile(join(__dirname, "..", "css", "atelier.css"), "utf8");
+  assert.match(source, /\.hero-visual \{[\s\S]*?position: absolute;[\s\S]*?inset: 0;/);
+  assert.match(source, /\.hero-visual img \{[\s\S]*?filter: blur\(2px\)/);
+  assert.match(source, /\.hero-visual::after \{[\s\S]*?inset: 0;[\s\S]*?background: linear-gradient/);
+  assert.match(source, /\.hero-copy \{[\s\S]*?min-height: 640px;/);
+});
+
+test("report chart data keeps a visible summary bar when the API has no series rows", () => {
+  assert.deepEqual(reportChartData({ summary: { revenue: 544000, orderCount: 2 } }), {
+    dailySales: [{ date: "Toàn kỳ", revenue: 544000, orderCount: 2 }],
+    orderStatuses: [{ status: "Tổng kỳ", count: 2, amount: 544000 }],
+    maxRevenue: 544000
+  });
+});
+
+test("report dates use the MongoDB calendar date without exposing ISO timestamps", () => {
+  assert.equal(formatReportDate("2026-09-10T00:00:00.000Z"), "10/09/2026");
+  assert.equal(formatReportDate("2026-10-09T23:59:59.999Z"), "09/10/2026");
+  assert.equal(formatReportDate("2026-10-09"), "09/10/2026");
+  assert.equal(formatReportDate(""), "—");
+});
+
+test("promotion periods render calendar dates instead of raw ISO timestamps", async () => {
+  const source = await readFile(join(__dirname, "admin.js"), "utf8");
+  assert.match(source, /formatReportDate\(item\.startDate \|\| "—"\)/);
+  assert.match(source, /formatReportDate\(item\.endDate \|\| "—"\)/);
+});
+
+test("appointment periods render calendar dates instead of raw ISO timestamps", async () => {
+  const source = await readFile(join(__dirname, "admin.js"), "utf8");
+  assert.match(source, /formatReportDate\(item\.appointmentDate \|\| item\.date \|\|/);
+});
+
+test("returns table keeps long values aligned inside the admin panel", async () => {
+  const adminSource = await readFile(join(__dirname, "admin.js"), "utf8");
+  const themeSource = await readFile(join(__dirname, "..", "css", "theme.css"), "utf8");
+  assert.match(adminSource, /<section class="panel returns-panel">/);
+  assert.match(themeSource, /\.admin \.returns-panel table \{[\s\S]*?table-layout: fixed;/);
+  assert.match(themeSource, /\.admin \.returns-panel th,[\s\S]*?overflow-wrap: anywhere;/);
+});
+
+test("product file upload control follows the active admin theme", async () => {
+  const source = await readFile(join(__dirname, "..", "css", "theme.css"), "utf8");
+  assert.match(source, /input\[type="file"\]::file-selector-button[\s\S]*?background: var\(--surface\);/);
+  assert.match(source, /input\[type="file"\]::file-selector-button:hover[\s\S]*?background: var\(--blush\);/);
+});
+
+test("report summary cards keep business metrics separate from date metadata", () => {
+  assert.deepEqual(reportSummaryEntries({
+    from: "2026-09-10T00:00:00.000Z",
+    to: "2026-10-09T23:59:59.999Z",
+    summary: { orderCount: 2, revenue: 544000, itemCount: 2 }
+  }), [
+    { key: "revenue", label: "Doanh thu", value: 544000, money: true },
+    { key: "orderCount", label: "Đơn hàng", value: 2, money: false },
+    { key: "itemCount", label: "Sản phẩm đã bán", value: 2, money: false }
+  ]);
+});
+
+test("admin CRUD views expose soft-delete actions with confirmation", async () => {
+  const source = await readFile(join(__dirname, "admin.js"), "utf8");
+  for (const action of ["remove-product", "remove-promotion", "remove-voucher", "remove-catalog"]) assert.match(source, new RegExp(action));
+  assert.doesNotMatch(source, /XÓA MỀM/);
+  assert.match(source, /remove-promotion[^\n]*XÓA/);
+  assert.match(source, /confirm\(/);
+});
+
+test("admin row actions stay behind an accessible overflow menu", () => {
+  const menu = rowActions('<button type="button">Chỉnh sửa</button>', "product-1");
+  assert.match(menu, /^<div class="admin-row-actions">/);
+  assert.match(menu, /<button class="admin-row-actions-trigger"[^>]*popovertarget="admin-row-actions-product-1"[^>]*>…<\/button>/);
+  assert.match(menu, /<div class="admin-row-actions-menu" id="admin-row-actions-product-1" popover="auto"><button type="button">Chỉnh sửa<\/button><\/div>/);
+});
+
+test("admin action popovers stay hidden until the trigger opens them", async () => {
+  const source = await readFile(join(__dirname, "..", "css", "theme.css"), "utf8");
+  assert.match(source, /\.admin \.admin-row-actions-menu \{[\s\S]*?display: none;/);
+  assert.match(source, /\.admin \.admin-row-actions-menu:popover-open \{[\s\S]*?display: grid;/);
+});
+
+test("open row action popovers follow their trigger while the page scrolls", async () => {
+  const source = await readFile(join(__dirname, "admin.js"), "utf8");
+  assert.match(source, /function repositionOpenActionPopovers\(\)/);
+  assert.match(source, /root\.addEventListener\?\.\("scroll", reposition, true\)/);
+  assert.match(source, /root\.addEventListener\?\.\("resize", reposition\)/);
+});
+
+test("admin action popovers position beside the trigger and flip from the viewport edge", () => {
+  assert.deepEqual(actionPopoverPosition(
+    { left: 1070, top: 240, right: 1114, bottom: 278 },
+    { width: 220, height: 150 },
+    { width: 1186, height: 698 }
+  ), { left: 842, top: 286 });
+});
+
+test("product action buttons share the compact edit-button shape", async () => {
+  const source = await readFile(join(__dirname, "..", "css", "theme.css"), "utf8");
+  assert.match(source, /\.admin \.admin-row-actions-menu > form \.outline,[\s\S]*?min-height: 38px !important;[\s\S]*?border-radius: 10px;/);
+});
+
+test("product action buttons use one shared color and tighter spacing", async () => {
+  const source = await readFile(join(__dirname, "..", "css", "theme.css"), "utf8");
+  const menuBlock = source.slice(source.indexOf(".admin .admin-row-actions-menu {"), source.indexOf(".admin .admin-row-actions-menu .form-message"));
+  assert.match(menuBlock, /gap: 6px;/);
+  assert.match(menuBlock, /background: var\(--surface-alt\);/);
+  assert.match(menuBlock, /color: var\(--ink\)(?: !important)?;/);
+  assert.match(menuBlock, /border: 1px solid var\(--line\);/);
+});
+
+test("product action labels stay lowercase and empty messages do not add gaps", async () => {
+  const source = await readFile(join(__dirname, "..", "css", "theme.css"), "utf8");
+  assert.match(source, /\.admin \.admin-row-actions-menu > form \.outline,[\s\S]*?text-transform: lowercase;/);
+  assert.match(source, /\.admin \.admin-row-actions-menu \.form-message:empty \{[\s\S]*?display: none;/);
+});
+
+test("admin report view renders chart containers for live report series", async () => {
+  const source = await readFile(join(__dirname, "admin.js"), "utf8");
+  assert.match(source, /daily-sales-chart/);
+  assert.match(source, /order-status-chart/);
+  assert.match(source, /report-detail-panel/);
+  assert.doesNotMatch(source, /JSON\.stringify\(other/);
+});
+
+test("report chart data is numeric-safe and exposes the largest revenue", () => {
+  assert.deepEqual(reportChartData({
+    dailySales: [{ date: "2026-10-01", revenue: "1250000", orderCount: "4" }, { date: "2026-10-02", revenue: 0, orderCount: 0 }],
+    orderStatuses: [{ status: "completed", amount: "1250000", count: "4" }]
+  }), {
+    dailySales: [{ date: "2026-10-01", revenue: 1250000, orderCount: 4 }, { date: "2026-10-02", revenue: 0, orderCount: 0 }],
+    orderStatuses: [{ status: "completed", amount: 1250000, count: 4 }],
+    maxRevenue: 1250000
+  });
+  assert.deepEqual(reportChartData({}), { dailySales: [], orderStatuses: [], maxRevenue: 1 });
+});
+
+test("CRUD payload helper converts admin form values to API types", () => {
+  assert.deepEqual(crudActionPayload("create-product", { name: "Serum", slug: "serum", brandId: "brand-1", categoryId: "cat-1", sku: "SKU-1", volume: "30ml", originalPrice: "300000", retailPrice: "250000" }), {
+    name: "Serum", slug: "serum", brandId: "brand-1", categoryId: "cat-1", description: "", variants: [{ sku: "SKU-1", volume: "30ml", originalPrice: 300000, retailPrice: 250000 }]
+  });
+  assert.deepEqual(crudActionPayload("toggle-product", { isActive: "false" }), { isActive: false });
+  assert.deepEqual(crudActionPayload("catalog-status", { isActive: "true" }), { isActive: true });
+});
+
+test("product payload accepts an uploaded image without exposing slug as an operator field", () => {
+  assert.deepEqual(crudActionPayload("create-product", {
+    name: "Kem dưỡng ẩm",
+    brandId: "brand-1",
+    categoryId: "cat-1",
+    sku: "SKU-2",
+    originalPrice: "400000",
+    retailPrice: "350000",
+    imageUrl: "data:image/png;base64,AAA"
+  }), {
+    name: "Kem dưỡng ẩm",
+    brandId: "brand-1",
+    categoryId: "cat-1",
+    description: "",
+    variants: [{ sku: "SKU-2", volume: undefined, originalPrice: 400000, retailPrice: 350000, imageUrl: "data:image/png;base64,AAA" }]
+  });
+});
+
+test("product creation form balances the first row and places image after description", async () => {
+  const source = await readFile(join(__dirname, "admin.js"), "utf8");
+  const start = source.indexOf('formBlock("Thêm sản phẩm"');
+  const end = source.indexOf('`, "TẠO SẢN PHẨM")', start);
+  const fields = source.slice(start, end);
+  assert.ok(fields.indexOf('${formField("Tên sản phẩm", "name")}') < fields.indexOf('${formField("Mã SKU phân loại", "sku")}'));
+  assert.ok(fields.indexOf('${formField("Mô tả", "description", "textarea", false)}') < fields.indexOf('${imageField("Ảnh sản phẩm")}'));
+});
+
+test("inventory table exposes stock adjustment inside the row actions", async () => {
+  const source = await readFile(join(__dirname, "admin.js"), "utf8");
+  assert.match(source, /data-inventory-action/);
+  assert.match(source, /data-admin-action="stock-adjustment"/);
+  assert.doesNotMatch(source, /formBlock\([^)]*stock-adjustment/s);
+});
+
+test("inventory adjustment opens from a labeled popup instead of inline details", async () => {
+  const source = await readFile(join(__dirname, "admin.js"), "utf8");
+  const themeSource = await readFile(join(__dirname, "..", "css", "theme.css"), "utf8");
+  const menu = rowActions("<form></form>", "inventory-1", { triggerLabel: "Điều chỉnh tồn kho", menuClass: "inventory-adjustment-popover" });
+  assert.doesNotMatch(source, /<details class="inventory-actions"/);
+  assert.match(source, /rowActions[\s\S]*Điều chỉnh tồn kho/);
+  assert.match(source, /inventory-adjustment-popover/);
+  assert.match(menu, /admin-row-actions-trigger-wide[^>]*>Điều chỉnh tồn kho<\/button>/);
+  assert.match(menu, /admin-row-actions-menu inventory-adjustment-popover/);
+  assert.match(themeSource, /\.admin \.inventory-adjustment-popover[\s\S]*?width: min\(320px/);
+});
+
+test("API identity role accepts both a role name and a populated role object", () => {
+  assert.equal(pickRole({ role: "warehouse" }), "warehouse");
+  assert.equal(pickRole({ role: { name: "manager" } }), "manager");
+});
+
+test("staff without a requested section land on a section their role can use", () => {
+  assert.equal(defaultView("manager"), "dashboard");
+  assert.equal(defaultView("sales"), "products");
+  assert.equal(defaultView("warehouse"), "inventory");
+  assert.equal(defaultView("sales", "reports"), "reports");
+});
+
+test("report cards extract real scalar metrics from nested API responses", () => {
+  assert.deepEqual(reportFields({ summary: { revenue: 1250000, orders: 4 }, daily: [{ date: "2026-10-01", total: 3 }] }), [
+    ["summary.revenue", 1250000], ["summary.orders", 4]
+]);
+
+test("dashboard metrics keep counts from each live admin resource", () => {
+  assert.deepEqual(dashboardMetrics({
+    report: { summary: { revenue: 1250000, orderCount: 4, itemCount: 9 } },
+    products: { pagination: { total: 18 } },
+    orders: { pagination: { total: 27 } },
+    inventory: { data: [{ id: "stock-1" }, { id: "stock-2" }] },
+    vouchers: { pagination: { total: 5 } },
+    promotions: { pagination: { total: 3 } },
+    deliveries: { pagination: { total: 7 } }
+  }), {
+    revenue: 1250000,
+    orderCount: 4,
+    itemCount: 9,
+    productCount: 18,
+    orderTotal: 27,
+    inventoryCount: 2,
+    voucherCount: 5,
+    promotionCount: 3,
+    deliveryCount: 7
+  });
+});
+});

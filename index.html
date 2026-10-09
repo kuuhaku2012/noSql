@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <script>try{if(localStorage.getItem("mb-theme")==="dark")document.documentElement.dataset.theme="dark"}catch(e){}</script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Maison Belle — Mỹ phẩm chính hãng</title>
+  <meta name="description" content="Maison Belle — cửa hàng mỹ phẩm chính hãng, chăm sóc da, trang điểm và chăm sóc cơ thể.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/atelier.css">
+  <link rel="stylesheet" href="css/flows.css">
+  <link rel="stylesheet" href="css/theme.css">
+</head>
+<body data-page="home">
+  <div class="topline">Maison Belle · Chăm sóc có chủ đích · Tìm sản phẩm theo nhu cầu làn da</div>
+  <header class="header">
+    <button class="menu-btn" data-open=".drawer" aria-label="Mở menu">☰</button>
+    <a class="logo" href="index.html">maison <b>belle</b><small>BEAUTY & SKINCARE</small></a>
+    <form class="search" data-search>
+      <button class="search-submit" type="submit" aria-label="Tìm kiếm" title="Tìm kiếm"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.2 4.2"/></svg></button>
+      <input name="q" placeholder="Tìm sản phẩm, thương hiệu..." aria-label="Tìm kiếm">
+      <a href="products.html?filters=open" class="search-filter" aria-label="Lọc sản phẩm" title="Lọc sản phẩm"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5m4 0h7M4 17h9m4 0h3"/><circle cx="11" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg></a>
+    </form>
+    <div class="headlinks">
+      <details class="language-menu"><summary aria-label="Chọn ngôn ngữ" title="Chọn ngôn ngữ"><span class="language-symbol" aria-hidden="true">◎</span><span class="language-code">VI</span><span class="language-chevron" aria-hidden="true">⌄</span></summary><div class="language-menu-panel" role="group" aria-label="Ngôn ngữ"><div class="language-current"><span>Tiếng Việt</span><small>Đang sử dụng</small></div><button type="button" disabled><span>English</span><small>Sắp ra mắt</small></button></div></details>
+      <a class="header-shortcut" href="account.html#appointments" aria-label="Tư vấn & chăm sóc" title="Tư vấn & chăm sóc">♡ <span>Tư vấn & chăm sóc</span></a>
+      <a class="header-shortcut" href="warranty.html" aria-label="Bảo hành & hỗ trợ" title="Bảo hành & hỗ trợ">✧ <span>Bảo hành</span></a>
+      <a href="account.html" aria-label="Tài khoản">♙ <span>Tài khoản</span></a>
+      <a href="cart.html" aria-label="Giỏ hàng">♧ <span>Giỏ hàng</span><i class="badge" data-cart-count hidden>0</i></a>
+    </div>
+  </header>
+  <nav class="nav">
+    <a class="active" href="index.html">TRANG CHỦ</a>
+    <details class="nav-categories"><summary>SẢN PHẨM</summary><div class="nav-menu-panel">
+      <div class="nav-menu-group" data-nav-group="skincare"><a class="nav-menu-heading" href="products.html?cat=skincare">CHĂM SÓC DA</a><a href="products.html?cat=skincare&amp;q=serum">Serum & tinh chất</a><a href="products.html?cat=skincare&amp;q=d%C6%B0%E1%BB%A1ng%20%E1%BA%A9m">Dưỡng ẩm</a><a href="products.html?cat=skincare&amp;q=ch%E1%BB%91ng%20n%E1%BA%AFng">Chống nắng</a></div>
+      <div class="nav-menu-group" data-nav-group="makeup"><a class="nav-menu-heading" href="products.html?cat=makeup">TRANG ĐIỂM</a><a href="products.html?cat=makeup&amp;q=n%E1%BB%81n">Trang điểm nền</a><a href="products.html?cat=makeup&amp;q=m%C3%B4i">Son & chăm sóc môi</a><a href="products.html?cat=makeup&amp;q=m%C3%A1">Má hồng</a></div>
+      <div class="nav-menu-group" data-nav-group="body"><a class="nav-menu-heading" href="products.html?cat=body">CHĂM SÓC CƠ THỂ</a><a href="products.html?cat=body&amp;q=s%E1%BB%AFa%20t%E1%BA%AFm">Sữa tắm</a><a href="products.html?cat=body&amp;q=d%C6%B0%E1%BB%A1ng%20th%E1%BB%83">Dưỡng thể</a><a href="products.html?cat=body&amp;q=ch%C4%83m%20s%C3%B3c%20tay">Chăm sóc tay</a></div>
+    </div></details>
+    <a href="index.html#ban-chay">BÁN CHẠY</a>
+    <a href="index.html#hang-moi">HÀNG MỚI</a>
+    <a href="brands.html">THƯƠNG HIỆU</a>
+    <a href="offers.html">ƯU ĐÃI</a>
+    <a href="about.html">GIỚI THIỆU</a>
+  </nav>
+  <div class="drawer" data-close>
+    <nav>
+      <button data-close type="button">Đóng</button>
+      <a href="index.html">Trang chủ</a>
+      <a href="products.html?cat=skincare">Chăm sóc da</a>
+      <a href="products.html?cat=makeup">Trang điểm</a>
+      <a href="products.html?cat=body">Chăm sóc cơ thể</a>
+      <a href="brands.html">Thương hiệu</a>
+      <a href="offers.html">Ưu đãi</a>
+      <a href="index.html#ban-chay">Sản phẩm bán chạy</a>
+      <a href="index.html#hang-moi">Hàng mới về</a>
+      <a href="account.html#appointments">Tư vấn & chăm sóc</a>
+      <a href="warranty.html">Bảo hành & hỗ trợ</a>
+      <a href="account.html">Tài khoản</a>
+      <a href="cart.html">Giỏ hàng</a>
+      <a href="about.html">Giới thiệu</a>
+    </nav>
+  </div>
+
+  <main>
+    <section class="hero" id="gioi-thieu">
+      <div class="hero-copy reveal">
+        <span class="eyebrow">Rituals for your skin</span>
+        <h1>Chạm vào<br><em>phiên bản rạng rỡ</em><br>của chính bạn.</h1>
+        <p>Chọn điều dịu dàng cho làn da — bắt đầu từ những sản phẩm được yêu thích nhất, chính hãng và được tuyển chọn.</p>
+        <div class="hero-actions">
+          <a class="btn" href="products.html">KHÁM PHÁ BỘ SƯU TẬP</a>
+          <a class="outline" href="products.html?cat=skincare">ROUTINE DA</a>
+        </div>
+        <div class="hero-note">Mỹ phẩm chính hãng · Tư vấn theo loại da · Đổi trả 7 ngày</div>
+      </div>
+      <div class="hero-visual">
+        <img src="img/hero.jpg" alt="Tinh chất Maison Belle trên khay đá">
+      </div>
+    </section>
+
+    <div class="wrap">
+      <section class="trust">
+        <div><span class="mark">✧</span><div class="trust-copy"><b>Chính hãng 100%</b><small>Nguồn gốc rõ ràng</small></div></div>
+        <div><span class="mark">♧</span><div class="trust-copy"><b>Giao toàn quốc</b><small>Đóng gói cẩn thận</small></div></div>
+        <div><span class="mark">♡</span><div class="trust-copy"><b>Tư vấn tận tâm</b><small>Routine theo loại da</small></div></div>
+        <div><span class="mark">↺</span><div class="trust-copy"><b>Đổi trả 7 ngày</b><small>Hỗ trợ nhanh</small></div></div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <div><span class="eyebrow">Shop by category</span><h2>Khám phá danh mục</h2></div>
+          <a class="textlink" href="products.html">Xem tất cả →</a>
+        </div>
+        <div class="categories">
+          <a class="category" href="products.html?cat=skincare"><img src="img/skincare.jpg" alt=""><span>01 / SKINCARE</span><b>Chăm sóc da</b><small>Serum · Dưỡng ẩm · Chống nắng</small></a>
+          <a class="category" href="products.html?cat=makeup"><img src="img/makeup.jpg" alt=""><span>02 / MAKEUP</span><b>Trang điểm</b><small>Nền · Môi · Má</small></a>
+          <a class="category" href="products.html?cat=body"><img src="img/body.jpg" alt=""><span>03 / BODY</span><b>Chăm sóc cơ thể</b><small>Sữa tắm · Dưỡng thể</small></a>
+        </div>
+      </section>
+
+      <section class="section" id="ban-chay" style="padding-top:0">
+        <div class="section-head">
+          <div><span class="eyebrow">ĐƯỢC YÊU THÍCH</span><h2>Sản phẩm bán chạy</h2></div>
+          <a class="textlink" href="products.html">Khám phá bộ sưu tập →</a>
+        </div>
+        <div class="products" id="loved"></div>
+      </section>
+
+      <section class="campaign">
+        <div class="campaign-copy">
+          <span class="eyebrow">The ritual edit</span>
+          <h2>Làn da dịu, sáng và đủ ẩm.</h2>
+          <p>Khám phá những công thức được tuyển chọn cho nhịp chăm sóc riêng — từ làm sạch dịu nhẹ đến dưỡng ẩm sâu.</p>
+          <a class="btn" href="products.html?sale=1">XEM ƯU ĐÃI</a>
+        </div>
+        <div class="campaign-visual"><img src="img/skincare.jpg" alt="Bộ sản phẩm chăm sóc da"></div>
+      </section>
+
+      <section class="section" id="hang-moi">
+        <div class="section-head">
+          <div><span class="eyebrow">MỚI TỪ CỬA HÀNG</span><h2>Hàng mới về</h2></div>
+          <a class="textlink" href="products.html">Xem toàn bộ sản phẩm →</a>
+        </div>
+        <div class="products" id="fresh"></div>
+      </section>
+    </div>
+
+    <div class="marquee" aria-hidden="true"><div class="track"><span>MAISON BELLE</span><span>BEAUTY</span><span>CARE</span><span>RITUAL</span><span>MAISON BELLE</span><span>BEAUTY</span><span>CARE</span><span>RITUAL</span></div></div>
+
+    <section class="newsletter">
+      <span class="eyebrow">The Belle Letter</span>
+      <h2>Ở lại cùng những điều đẹp đẽ.</h2>
+      <p>Đặt lịch trò chuyện cùng đội ngũ tư vấn để tìm nghi thức chăm sóc phù hợp với làn da của bạn.</p>
+      <a class="btn" href="account.html#appointments">ĐẶT LỊCH TƯ VẤN →</a>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <a class="logo" href="index.html">maison <b>belle</b><small>BEAUTY & SKINCARE</small></a>
+    <div><b>Hỗ trợ</b><p><a href="warranty.html">Bảo hành & hỗ trợ</a></p><p>Đổi trả & hoàn tiền</p><p>Hướng dẫn mua hàng</p></div>
+    <div><b>Maison Belle</b><p>Câu chuyện thương hiệu</p><p>Hệ thống cửa hàng</p><p>Liên hệ</p></div>
+    <div><b>Hotline</b><p>1900 6868</p><p>09:00–21:00 mỗi ngày</p></div>
+    <div class="copyright">© 2026 Maison Belle · Giao diện demo phục vụ đồ án</div>
+  </footer>
+
+  <div class="toast" role="status"></div>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/storefront.js"></script>
+  <script src="js/atelier.js"></script>
+</body>
+</html>
