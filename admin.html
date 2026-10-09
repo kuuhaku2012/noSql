@@ -8,29 +8,45 @@
   <link rel="stylesheet" href="css/style.css"><link rel="stylesheet" href="css/atelier.css"><link rel="stylesheet" href="css/flows.css"><link rel="stylesheet" href="css/operations.css"><link rel="stylesheet" href="css/theme.css">
 </head>
 <body class="admin" data-page="admin">
+  <a class="skip-link" href="#main-content">Bỏ qua đến nội dung</a>
   <div class="admin-layout">
     <aside class="sidebar" id="side">
-      <div class="sidebar-brand"><button class="logo sidebar-logo" id="sidebar-logo" type="button" aria-label="Thu gọn thanh bên" aria-expanded="true" title="Thu gọn thanh bên">maison <b>belle</b><small>STUDIO · VẬN HÀNH</small></button></div>
+      <div class="sidebar-brand"><button class="logo sidebar-logo" id="sidebar-logo" type="button" aria-label="Thu gọn thanh bên" aria-expanded="true" title="Thu gọn thanh bên">maison <b>belle</b><small>STUDIO · VẬN HÀNH</small></button><button class="sidebar-close" id="close-side" type="button" aria-label="Đóng điều hướng">×</button></div>
       <div class="side-label">CỬA HÀNG</div>
-      <a class="side-link" href="admin.html?view=dashboard" data-nav-view="dashboard" title="Tổng quan"><span class="side-link-icon" aria-hidden="true">⌂</span><span class="side-link-label">Tổng quan</span></a>
-      <a class="side-link" href="admin.html?view=products" data-nav-view="products" title="Sản phẩm"><span class="side-link-icon" aria-hidden="true">◈</span><span class="side-link-label">Sản phẩm</span></a>
-      <a class="side-link" href="admin.html?view=orders" data-nav-view="orders" title="Đơn hàng & hóa đơn"><span class="side-link-icon" aria-hidden="true">▣</span><span class="side-link-label">Đơn hàng & hóa đơn</span></a>
-      <a class="side-link" href="admin.html?view=customers" data-nav-view="customers" title="Khách hàng & hội viên"><span class="side-link-icon" aria-hidden="true">♧</span><span class="side-link-label">Khách hàng & hội viên</span></a>
-      <a class="side-link" href="admin.html?view=appointments" data-nav-view="appointments" title="Tư vấn & lịch hẹn"><span class="side-link-icon" aria-hidden="true">♡</span><span class="side-link-label">Tư vấn & lịch hẹn</span></a>
-      <a class="side-link" href="admin.html?view=promotions" data-nav-view="promotions" title="Khuyến mãi & voucher"><span class="side-link-icon" aria-hidden="true">✦</span><span class="side-link-label">Khuyến mãi & voucher</span></a>
+      <a class="side-link" href="admin.html?view=dashboard" data-nav-view="dashboard" title="Tổng quan &amp; Báo cáo"><span class="side-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span><span class="side-link-label">Tổng quan &amp; Báo cáo</span></a>
+      <a class="side-link" href="admin.html?view=products" data-nav-view="products" title="Sản phẩm"><span class="side-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 8 9 5 9-5M3 13l9 5 9-5M3 8v8l9 5 9-5V8"/></svg></span><span class="side-link-label">Sản phẩm</span></a>
+      <a class="side-link" href="admin.html?view=orders" data-nav-view="orders" title="Đơn hàng & hóa đơn"><span class="side-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M15 3v5h5M9 13h6M9 17h6"/></svg></span><span class="side-link-label">Đơn hàng & hóa đơn</span></a>
+      <a class="side-link" href="admin.html?view=customers" data-nav-view="customers" title="Khách hàng & hội viên"><span class="side-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0M16 5.5a3 3 0 0 1 0 5.8M17 14a4.5 4.5 0 0 1 3.5 4.4"/></svg></span><span class="side-link-label">Khách hàng & hội viên</span></a>
+      <a class="side-link" href="admin.html?view=appointments" data-nav-view="appointments" title="Tư vấn & lịch hẹn"><span class="side-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h3M8 17h6"/></svg></span><span class="side-link-label">Tư vấn & lịch hẹn</span></a>
+      <a class="side-link" href="admin.html?view=promotions" data-nav-view="promotions" title="Khuyến mãi & voucher"><span class="side-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m20.6 13.4-7.2 7.2a2 2 0 0 1-2.8 0l-7.2-7.2a2 2 0 0 1 0-2.8l7.2-7.2A2 2 0 0 1 12 3h6a3 3 0 0 1 3 3v6a2 2 0 0 1-.4 1.4Z"/><circle cx="16.5" cy="7.5" r="1"/></svg></span><span class="side-link-label">Khuyến mãi & voucher</span></a>
       <div class="side-label">KHO & GIAO NHẬN</div>
-      <a class="side-link" href="admin.html?view=inventory" data-nav-view="inventory" title="Tồn kho & nhập hàng"><span class="side-link-icon" aria-hidden="true">▥</span><span class="side-link-label">Tồn kho & nhập hàng</span></a>
-      <a class="side-link" href="admin.html?view=deliveries" data-nav-view="deliveries" title="Giao hàng"><span class="side-link-icon" aria-hidden="true">↗</span><span class="side-link-label">Giao hàng</span></a>
-      <a class="side-link" href="admin.html?view=returns" data-nav-view="returns" title="Đổi trả"><span class="side-link-icon" aria-hidden="true">↩</span><span class="side-link-label">Đổi trả</span></a>
-      <div class="side-label">PHÂN TÍCH</div>
-      <a class="side-link" href="admin.html?view=master-data" data-nav-view="master-data" title="Danh mục & thương hiệu"><span class="side-link-icon" aria-hidden="true">◌</span><span class="side-link-label">Danh mục & thương hiệu</span></a>
-      <div class="side-footer"><a href="index.html"><span class="side-footer-icon" aria-hidden="true">←</span><span class="side-footer-label">Về cửa hàng</span></a><button type="button" data-logout><span class="side-footer-icon" aria-hidden="true">↪</span><span class="side-footer-label">Đăng xuất</span></button></div>
+      <a class="side-link" href="admin.html?view=inventory" data-nav-view="inventory" title="Tồn kho & nhập hàng"><span class="side-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V7l8-4 8 4v13M4 7l8 4 8-4M12 11v9M8 9v2M16 9v2"/></svg></span><span class="side-link-label">Tồn kho & nhập hàng</span></a>
+      <a class="side-link" href="admin.html?view=deliveries" data-nav-view="deliveries" title="Giao hàng"><span class="side-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 6h11v11H3zM14 10h4l3 3v4h-7z"/><circle cx="7.5" cy="19" r="1.5"/><circle cx="18" cy="19" r="1.5"/></svg></span><span class="side-link-label">Giao hàng</span></a>
+      <a class="side-link" href="admin.html?view=returns" data-nav-view="returns" title="Đổi trả"><span class="side-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-2"/></svg></span><span class="side-link-label">Đổi trả</span></a>
+      <div class="side-label">THIẾT LẬP</div>
+      <a class="side-link" href="admin.html?view=master-data" data-nav-view="master-data" title="Danh mục & thương hiệu"><span class="side-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5ZM3 12l9 5 9-5M3 16l9 5 9-5"/></svg></span><span class="side-link-label">Danh mục & thương hiệu</span></a>
+      <div class="side-footer"><a href="index.html"><span class="side-footer-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6M9 12h12"/></svg></span><span class="side-footer-label">Về cửa hàng</span></a><button type="button" data-logout><span class="side-footer-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M21 4v16"/></svg></span><span class="side-footer-label">Đăng xuất</span></button></div>
     </aside>
-    <main class="admin-main">
-      <div class="admin-head"><div><button class="admin-toggle btn" id="open-side" type="button" aria-label="Mở điều hướng">☰</button><div><span class="eyebrow">MAISON BELLE · STUDIO</span><h1 id="view-title">Tổng quan</h1></div></div><div class="admin-identity"><span id="today"></span><span id="staff-role">Đang xác thực…</span></div></div>
+    <main class="admin-main" id="main-content" tabindex="-1">
+      <header class="admin-head">
+        <div class="admin-head-row">
+          <div class="admin-head-main"><button class="admin-toggle btn" id="open-side" type="button" aria-label="Mở điều hướng" aria-controls="side" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="admin-heading"><span class="eyebrow">MAISON BELLE · STUDIO</span><h1 id="view-title">Tổng quan &amp; Báo cáo</h1><p id="view-description">Theo dõi doanh thu, đơn hàng và hoạt động cửa hàng trong một nơi.</p></div></div>
+          <div class="admin-head-side">
+            <div class="admin-head-tools">
+              <div class="admin-system-status" role="status"><span aria-hidden="true"></span><span>Hệ thống hoạt động</span></div>
+              <span class="admin-tools-divider" aria-hidden="true"></span>
+              <details class="language-menu admin-language-menu"><summary aria-label="Chọn ngôn ngữ" title="Chọn ngôn ngữ"><span class="language-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg></span><span class="language-code">VI</span><span class="language-chevron" aria-hidden="true">⌄</span></summary><div class="language-menu-panel" role="group" aria-label="Ngôn ngữ"><div class="language-current"><span>Tiếng Việt</span><small>Đang sử dụng</small></div><button type="button" disabled><span>English</span><small>Sắp ra mắt</small></button></div></details>
+              <span class="admin-theme-control" id="admin-theme-control"></span>
+              <button class="admin-notification-button" type="button" aria-label="Thông báo" title="Thông báo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span aria-hidden="true"></span></button>
+              <details class="admin-profile-menu"><summary class="admin-profile" aria-label="Tài khoản quản trị" title="Tài khoản quản trị"><span class="admin-avatar" id="staff-avatar" aria-hidden="true">MD</span><span class="admin-profile-copy"><strong id="staff-name">Đang xác thực…</strong><small id="staff-role">Quản trị viên</small></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></summary><div class="admin-profile-popover"><button type="button" data-logout><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M21 4v16"/></svg>Đăng xuất</button></div></details>
+            </div>
+          </div>
+        </div>
+      </header>
       <div id="admin-content"><div class="state state-loading" role="status"><span class="state-mark">◌</span><b>Đang tải…</b><p>Đang kết nối với hệ thống vận hành.</p></div></div>
     </main>
   </div>
+  <button class="sidebar-backdrop" id="side-backdrop" type="button" aria-label="Đóng điều hướng" hidden></button>
   <div class="toast" role="status"></div>
   <script src="js/api.js"></script><script src="js/app.js"></script><script src="js/admin.js"></script><script src="js/atelier.js"></script>
 </body>

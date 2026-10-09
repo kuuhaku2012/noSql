@@ -141,14 +141,16 @@ test("nav indicator also follows the product category menu", () => {
   }
 });
 
-test("product category details stays open after hover until its summary is toggled", () => {
+test("product category menu closes when the pointer leaves or another nav item is clicked", () => {
   const previousDocument = global.document;
   const previousMatchMedia = global.matchMedia;
   const previousAddEventListener = global.addEventListener;
   const categoryListeners = {};
+  const navListeners = {};
   const categoryMenu = {
     open: false,
-    addEventListener(type, listener) { categoryListeners[type] = listener; }
+    addEventListener(type, listener) { categoryListeners[type] = listener; },
+    contains(target) { return target === categoryMenu; }
   };
   const directLink = {
     addEventListener() {},
@@ -159,7 +161,7 @@ test("product category details stays open after hover until its summary is toggl
     getBoundingClientRect() { return { left: 0 }; },
     querySelector(selector) { return selector.includes("nav-categories") ? categoryMenu : directLink; },
     querySelectorAll() { return [directLink]; },
-    addEventListener() {}
+    addEventListener(type, listener) { navListeners[type] = listener; }
   };
   global.document = { querySelector() { return nav; }, createElement() { return { style: {} }; } };
   global.matchMedia = () => ({ matches: false });
@@ -169,8 +171,11 @@ test("product category details stays open after hover until its summary is toggl
     MB.mountNav();
     categoryListeners.pointerenter({ pointerType: "mouse" });
     assert.equal(categoryMenu.open, true, "hovering the product menu opens its native details element");
-    assert.equal(categoryListeners.pointerleave, undefined, "pointer exit must not close the menu");
-    assert.equal(categoryMenu.open, true, "the native summary click remains in control of closing it");
+    categoryListeners.pointerleave({ pointerType: "mouse" });
+    assert.equal(categoryMenu.open, false, "leaving the product menu closes it");
+    categoryListeners.pointerenter({ pointerType: "mouse" });
+    navListeners.click({ target: directLink });
+    assert.equal(categoryMenu.open, false, "choosing another navigation item closes it");
   } finally {
     if (previousDocument === undefined) delete global.document; else global.document = previousDocument;
     if (previousMatchMedia === undefined) delete global.matchMedia; else global.matchMedia = previousMatchMedia;

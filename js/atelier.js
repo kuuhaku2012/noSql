@@ -1,39 +1,24 @@
 (function () {
-  const fine = window.matchMedia("(pointer:fine)").matches;
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function boot() {
     const bar = document.createElement("div");
     bar.className = "progress";
+    bar.setAttribute("aria-hidden", "true");
     document.body.appendChild(bar);
-    const onScroll = () => {
-      const h = document.documentElement.scrollHeight - innerHeight;
-      bar.style.width = (h > 0 ? (scrollY / h) * 100 : 0) + "%";
+    let progressFrame = 0;
+    const updateProgress = () => {
+      progressFrame = 0;
+      const scrollable = document.documentElement.scrollHeight - innerHeight;
+      const progress = scrollable > 0 ? Math.min(1, Math.max(0, scrollY / scrollable)) : 0;
+      bar.style.transform = `scaleX(${progress})`;
     };
-    addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-
-    if (fine && !reduce) {
-      const c = document.createElement("div");
-      c.className = "cursor on";
-      document.body.appendChild(c);
-      addEventListener("pointermove", (e) => {
-        c.style.left = e.clientX + "px";
-        c.style.top = e.clientY + "px";
-        c.classList.toggle("hot", !!e.target.closest("a, button, .card"));
-      }, { passive: true });
-      const heroImg = document.querySelector(".hero-visual img");
-      if (heroImg) {
-        const hero = document.querySelector(".hero");
-        hero?.addEventListener("pointermove", (e) => {
-          const r = e.currentTarget.getBoundingClientRect();
-          const x = (e.clientX - r.left) / r.width - .5;
-          const y = (e.clientY - r.top) / r.height - .5;
-          heroImg.style.transform = "scale(1.08) translate(" + (x * -16) + "px," + (y * -12) + "px)";
-        });
-        hero?.addEventListener("pointerleave", () => heroImg.style.removeProperty("transform"));
-      }
-    }
+    const scheduleProgress = () => {
+      if (!progressFrame) progressFrame = requestAnimationFrame(updateProgress);
+    };
+    addEventListener("scroll", scheduleProgress, { passive: true });
+    addEventListener("resize", scheduleProgress, { passive: true });
+    updateProgress();
 
     document.body.addEventListener("click", (e) => {
       const add = e.target.closest("[data-add], #add");
@@ -54,21 +39,23 @@
       setTimeout(() => { dot.remove(); badge.classList.add("pop"); setTimeout(() => badge.classList.remove("pop"), 360); }, 700);
     });
 
-    document.querySelectorAll(".card .photo").forEach((photo) => {
+    const addCaption = (photo) => {
       if (photo.querySelector(".meta-pop")) return;
       const cap = document.createElement("span");
       cap.className = "meta-pop";
+      cap.setAttribute("aria-hidden", "true");
       cap.textContent = "Xem chi tiết";
       photo.appendChild(cap);
-    });
-    new MutationObserver(() => {
-      document.querySelectorAll(".card .photo").forEach((photo) => {
-        if (photo.querySelector(".meta-pop")) return;
-        const cap = document.createElement("span");
-        cap.className = "meta-pop";
-        cap.textContent = "Xem chi tiết";
-        photo.appendChild(cap);
-      });
+    };
+    const decoratePhotos = (scope) => {
+      if (scope.matches?.(".card .photo")) addCaption(scope);
+      scope.querySelectorAll?.(".card .photo").forEach(addCaption);
+    };
+    decoratePhotos(document);
+    new MutationObserver((records) => {
+      records.forEach((record) => record.addedNodes.forEach((node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) decoratePhotos(node);
+      }));
     }).observe(document.body, { childList: true, subtree: true });
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

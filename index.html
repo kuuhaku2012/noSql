@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="css/theme.css">
 </head>
 <body data-page="home">
+  <a class="skip-link" href="#main-content">Bỏ qua đến nội dung</a>
   <div class="topline">Maison Belle · Chăm sóc có chủ đích · Tìm sản phẩm theo nhu cầu làn da</div>
   <header class="header">
     <button class="menu-btn" data-open=".drawer" aria-label="Mở menu">☰</button>
@@ -26,7 +27,7 @@
     </form>
     <div class="headlinks">
       <details class="language-menu"><summary aria-label="Chọn ngôn ngữ" title="Chọn ngôn ngữ"><span class="language-symbol" aria-hidden="true">◎</span><span class="language-code">VI</span><span class="language-chevron" aria-hidden="true">⌄</span></summary><div class="language-menu-panel" role="group" aria-label="Ngôn ngữ"><div class="language-current"><span>Tiếng Việt</span><small>Đang sử dụng</small></div><button type="button" disabled><span>English</span><small>Sắp ra mắt</small></button></div></details>
-      <a class="header-shortcut" href="account.html#appointments" aria-label="Tư vấn & chăm sóc" title="Tư vấn & chăm sóc">♡ <span>Tư vấn & chăm sóc</span></a>
+      <a class="header-shortcut" href="consultation.html" aria-label="Tư vấn & chăm sóc" title="Tư vấn & chăm sóc">♡ <span>Tư vấn & chăm sóc</span></a>
       <a class="header-shortcut" href="warranty.html" aria-label="Bảo hành & hỗ trợ" title="Bảo hành & hỗ trợ">✧ <span>Bảo hành</span></a>
       <a href="account.html" aria-label="Tài khoản">♙ <span>Tài khoản</span></a>
       <a href="cart.html" aria-label="Giỏ hàng">♧ <span>Giỏ hàng</span><i class="badge" data-cart-count hidden>0</i></a>
@@ -56,7 +57,7 @@
       <a href="offers.html">Ưu đãi</a>
       <a href="index.html#ban-chay">Sản phẩm bán chạy</a>
       <a href="index.html#hang-moi">Hàng mới về</a>
-      <a href="account.html#appointments">Tư vấn & chăm sóc</a>
+      <a href="consultation.html">Tư vấn & chăm sóc</a>
       <a href="warranty.html">Bảo hành & hỗ trợ</a>
       <a href="account.html">Tài khoản</a>
       <a href="cart.html">Giỏ hàng</a>
@@ -64,7 +65,7 @@
     </nav>
   </div>
 
-  <main>
+  <main id="main-content" tabindex="-1">
     <section class="hero" id="gioi-thieu">
       <div class="hero-copy reveal">
         <span class="eyebrow">Rituals for your skin</span>
@@ -77,7 +78,7 @@
         <div class="hero-note">Mỹ phẩm chính hãng · Tư vấn theo loại da · Đổi trả 7 ngày</div>
       </div>
       <div class="hero-visual">
-        <img src="img/hero.jpg" alt="Tinh chất Maison Belle trên khay đá">
+        <img src="img/hero.jpg" alt="Tinh chất Maison Belle trên khay đá" fetchpriority="high" decoding="async">
       </div>
     </section>
 
@@ -95,9 +96,9 @@
           <a class="textlink" href="products.html">Xem tất cả →</a>
         </div>
         <div class="categories">
-          <a class="category" href="products.html?cat=skincare"><img src="img/skincare.jpg" alt=""><span>01 / SKINCARE</span><b>Chăm sóc da</b><small>Serum · Dưỡng ẩm · Chống nắng</small></a>
-          <a class="category" href="products.html?cat=makeup"><img src="img/makeup.jpg" alt=""><span>02 / MAKEUP</span><b>Trang điểm</b><small>Nền · Môi · Má</small></a>
-          <a class="category" href="products.html?cat=body"><img src="img/body.jpg" alt=""><span>03 / BODY</span><b>Chăm sóc cơ thể</b><small>Sữa tắm · Dưỡng thể</small></a>
+          <a class="category" href="products.html?cat=skincare"><img src="img/skincare.jpg" alt="" loading="lazy" decoding="async"><span>01 / SKINCARE</span><b>Chăm sóc da</b><small>Serum · Dưỡng ẩm · Chống nắng</small></a>
+          <a class="category" href="products.html?cat=makeup"><img src="img/makeup.jpg" alt="" loading="lazy" decoding="async"><span>02 / MAKEUP</span><b>Trang điểm</b><small>Nền · Môi · Má</small></a>
+          <a class="category" href="products.html?cat=body"><img src="img/body.jpg" alt="" loading="lazy" decoding="async"><span>03 / BODY</span><b>Chăm sóc cơ thể</b><small>Sữa tắm · Dưỡng thể</small></a>
         </div>
       </section>
 
@@ -116,7 +117,7 @@
           <p>Khám phá những công thức được tuyển chọn cho nhịp chăm sóc riêng — từ làm sạch dịu nhẹ đến dưỡng ẩm sâu.</p>
           <a class="btn" href="products.html?sale=1">XEM ƯU ĐÃI</a>
         </div>
-        <div class="campaign-visual"><img src="img/skincare.jpg" alt="Bộ sản phẩm chăm sóc da"></div>
+        <div class="campaign-visual"><img src="img/skincare.jpg" alt="Bộ sản phẩm chăm sóc da" loading="lazy" decoding="async"></div>
       </section>
 
       <section class="section" id="hang-moi">
@@ -134,7 +135,7 @@
       <span class="eyebrow">The Belle Letter</span>
       <h2>Ở lại cùng những điều đẹp đẽ.</h2>
       <p>Đặt lịch trò chuyện cùng đội ngũ tư vấn để tìm nghi thức chăm sóc phù hợp với làn da của bạn.</p>
-      <a class="btn" href="account.html#appointments">ĐẶT LỊCH TƯ VẤN →</a>
+      <a class="btn" href="consultation.html">ĐẶT LỊCH TƯ VẤN →</a>
     </section>
   </main>
 

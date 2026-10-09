@@ -40,7 +40,7 @@ test("customer pages put service shortcuts in the header and group product types
     const header = html.match(/<header class="header">([\s\S]*?)<\/header>/)?.[1] || "";
     const nav = html.match(/<nav class="nav">([\s\S]*?)<\/nav>/)?.[1] || "";
     const drawer = html.match(/<div class="drawer"[\s\S]*?<\/div>/)?.[0] || "";
-    assert.match(header, /class="header-shortcut" href="account\.html#appointments" aria-label="Tư vấn & chăm sóc"/);
+    assert.match(header, /class="header-shortcut" href="consultation\.html" aria-label="Tư vấn & chăm sóc"/);
     assert.match(header, /class="header-shortcut" href="warranty\.html" aria-label="Bảo hành & hỗ trợ"/);
     assert.match(header, /<details class="language-menu">[\s\S]*?aria-label="Chọn ngôn ngữ"/);
     assert.match(header, /Tiếng Việt/);
@@ -62,18 +62,20 @@ test("customer pages put service shortcuts in the header and group product types
     for (const section of ["ban-chay", "hang-moi"]) assert.match(nav, new RegExp(`href="(?:index\\.html)?#${section}"`), `${page} should offer ${section} navigation`);
     assert.match(nav, /<a[^>]*href="about\.html"[^>]*>GIỚI THIỆU<\/a>\s*$/, `${page} should place About last in the main navigation`);
     assert.doesNotMatch(nav, /href="index\.html#gioi-thieu"/);
-    assert.match(drawer, /href="account\.html#appointments"/);
+    assert.match(drawer, /href="consultation\.html"/);
     assert.match(drawer, /href="warranty\.html"/);
     assert.equal((drawer.match(/href="about\.html"/g) || []).length, 1, `${page} should show the introduction link once in the mobile menu`);
     for (const section of ["ban-chay", "hang-moi"]) assert.match(drawer, new RegExp(`href="index\\.html#${section}"`), `${page} should offer ${section} in the mobile menu`);
   }
 });
 
-test("the product mega menu opens on hover and stays open for a native summary click to close", async () => {
+test("the product mega menu closes when leaving it or selecting another navigation item", async () => {
   const app = await readFile(join(root, "js/app.js"), "utf8");
   const home = await readFile(join(root, "index.html"), "utf8");
   assert.match(app, /\.nav-categories[\s\S]*?pointerenter/);
-  assert.doesNotMatch(app, /pointerleave/);
+  assert.match(app, /\.nav-categories[\s\S]*?pointerleave/);
+  assert.match(app, /categoryMenu\.contains\(event\.target\)/);
+  assert.match(app, /categoryMenu\.open\s*=\s*false/);
   assert.match(home, /<details class="nav-categories"><summary>SẢN PHẨM<\/summary>/);
   assert.match(app, /pointerType\s*===\s*["']mouse["']/);
   assert.match(app, /\.open\s*=\s*true/);
@@ -150,7 +152,7 @@ test("about page presents the brand story and a support CTA", async () => {
   assert.match(about, /<main[^>]*class="[^"]*about-page/);
   assert.match(about, /id="about-values"/);
   assert.match(about, /id="about-appointment"/);
-  assert.match(about, /href="account\.html#appointments"/);
+  assert.match(about, /href="consultation\.html"/);
 });
 
 test("homepage campaign uses a solid copy panel and blends the image into its frame", async () => {
@@ -225,7 +227,7 @@ test("warranty page provides order lookup, return guidance, and appointment CTA"
   assert.match(warranty, /name="orderCode"/);
   assert.match(warranty, /id="order-lookup-result"/);
   assert.match(warranty, /id="return-guide"/);
-  assert.match(warranty, /href="account\.html#appointments"/);
+  assert.match(warranty, /href="consultation\.html"/);
   assert.match(warranty, /js\/warranty-page\.js/);
 });
 

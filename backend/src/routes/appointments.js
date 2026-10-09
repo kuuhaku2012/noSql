@@ -126,7 +126,11 @@ export function appointmentsRouter({ db }) {
     if (!req.body.status) throw new HttpError(400, "VALIDATION_ERROR", "status is required");
     if (req.user.role === "customer" && req.body.status !== "cancelled") throw new HttpError(403, "FORBIDDEN", "Customers can only cancel appointments");
     if (req.user.role === "customer" && (req.body.employeeNote !== undefined || req.body.consultationResult !== undefined)) throw new HttpError(403, "FORBIDDEN", "Customers cannot change staff consultation fields");
-    assertTransition(appointmentTransitions, appointment.status, req.body.status);
+    const editingCompletedConsultation = ["sales", "manager"].includes(req.user.role)
+      && appointment.status === "completed"
+      && req.body.status === appointment.status
+      && (req.body.employeeNote !== undefined || req.body.consultationResult !== undefined);
+    if (!editingCompletedConsultation) assertTransition(appointmentTransitions, appointment.status, req.body.status);
     const update = { status: req.body.status, updatedAt: new Date() };
     if (req.body.employeeNote !== undefined) update.employeeNote = req.body.employeeNote;
     if (req.body.consultationResult !== undefined) update.consultationResult = req.body.consultationResult;

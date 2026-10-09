@@ -127,7 +127,7 @@
       const badge = product.isDemo ? '<span class="pill demo-pill">DỮ LIỆU MINH HỌA</span>' : "";
       const sale = Number(variant.promotionPrice) > 0 && Number(variant.promotionPrice) < Number(variant.retailPrice)
         ? '<span class="pill sale-pill">ƯU ĐÃI</span>' : "";
-      const image = product.image ? `<img src="${escape(product.image)}" alt="${escape(product.name)}" loading="lazy">` : '<span class="image-pending">Ảnh sản phẩm</span>';
+      const image = product.image ? `<img src="${escape(product.image)}" alt="${escape(product.name)}" loading="lazy" decoding="async">` : '<span class="image-pending">Ảnh sản phẩm</span>';
       return `<article class="card">
         <a class="photo" href="product.html?id=${encodeURIComponent(product.id)}">${badge}${sale}${image}</a>
         <div class="brand">${escape(product.brand)}</div>
@@ -211,7 +211,8 @@
     mountTheme() {
       try { if (localStorage.getItem("mb-theme") === "dark") root.document.documentElement.dataset.theme = "dark"; } catch {}
       if (!root.document) return;
-      const host = root.document.querySelector(".headlinks, .admin-head");
+      const adminHost = root.document.querySelector("#admin-theme-control");
+      const host = adminHost || root.document.querySelector(".headlinks, .admin-head");
       if (!host || host.querySelector(".theme-btn")) return;
       const button = root.document.createElement("button");
       button.className = "theme-btn";
@@ -219,7 +220,11 @@
       const sync = () => {
         const dark = root.document.documentElement.dataset.theme === "dark";
         const label = dark ? "Bật giao diện sáng" : "Bật giao diện tối";
-        button.textContent = dark ? "☀" : "☾";
+        button.innerHTML = adminHost
+          ? dark
+            ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg>'
+            : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.4A8.5 8.5 0 0 1 9.6 3.5 8.5 8.5 0 1 0 20.5 14.4Z"/></svg>'
+          : dark ? "☀" : "☾";
         button.title = label;
         button.setAttribute("aria-label", label);
         button.setAttribute("aria-pressed", String(dark));
@@ -231,8 +236,40 @@
         try { localStorage.setItem("mb-theme", dark ? "light" : "dark"); } catch {}
         sync();
       });
-      host.prepend(button);
+      if (adminHost) host.append(button);
+      else host.prepend(button);
       sync();
+    },
+    syncHeaderLogout(visible) {
+      root.document?.querySelectorAll(".headlinks").forEach((host) => {
+        const existing = host.querySelector("[data-header-logout]");
+        if (!visible) { existing?.remove(); return; }
+        if (existing) return;
+        const button = root.document.createElement("button");
+        button.className = "header-shortcut header-logout";
+        button.type = "button";
+        button.dataset.logout = "";
+        button.dataset.headerLogout = "";
+        button.setAttribute("aria-label", "Đăng xuất");
+        button.title = "Đăng xuất";
+        button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M21 4v16"/></svg><span>Đăng xuất</span>';
+        const accountLink = host.querySelector('a[aria-label="Tài khoản"]');
+        if (accountLink) accountLink.after(button);
+        else host.append(button);
+      });
+    },
+    async mountCustomerSession() {
+      if (!root.MBApi?.auth?.me) return;
+      const hasHeader = root.document.querySelector(".headlinks");
+      const hasNav = root.document.querySelector(".nav");
+      if (!hasHeader && !hasNav) return;
+      try {
+        const user = unwrap(await root.MBApi.auth.me()) || {};
+        this.syncHeaderLogout(true);
+        await this.mountAdminNav(user);
+      } catch {
+        this.syncHeaderLogout(false);
+      }
     },
     mountNav() {
       const nav = root.document.querySelector(".nav");
@@ -242,31 +279,45 @@
         categoryMenu.addEventListener("pointerenter", (event) => {
           if (event.pointerType === "mouse") categoryMenu.open = true;
         });
+        categoryMenu.addEventListener("pointerleave", (event) => {
+          if (event.pointerType === "mouse") categoryMenu.open = false;
+        });
+        nav.addEventListener("click", (event) => {
+          if (!categoryMenu.contains(event.target)) categoryMenu.open = false;
+        });
       }
       if (root.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
       const pill = root.document.createElement("span");
       pill.className = "nav-pill";
       nav.prepend(pill);
-      const move = (link) => {
+      const move = (link, animate = true) => {
         if (!link) return;
         const navRect = nav.getBoundingClientRect(), rect = link.getBoundingClientRect();
+        if (!animate) pill.style.transition = "none";
         pill.style.width = rect.width + "px";
         pill.style.transform = `translateX(${rect.left - navRect.left}px)`;
         pill.style.opacity = "1";
+        if (!animate) {
+          pill.getBoundingClientRect();
+          pill.style.removeProperty("transition");
+        }
       };
       const triggers = nav.querySelectorAll(":scope > a, :scope > details > summary");
       const active = () => nav.querySelector(":scope > a.active") || nav.querySelector(":scope > a");
+      const syncActivePill = () => move(active(), false);
+      this.syncActivePill = syncActivePill;
       triggers.forEach((link) => link.addEventListener("mouseenter", () => move(link)));
       nav.addEventListener("mouseleave", () => move(active()));
-      root.addEventListener("resize", () => move(active()));
-      move(active());
+      root.addEventListener("resize", syncActivePill);
+      root.document.fonts?.ready?.then(syncActivePill);
+      syncActivePill();
     },
-    async mountAdminNav() {
+    async mountAdminNav(user) {
       const nav = root.document?.querySelector(".nav");
       if (!nav || nav.querySelector(":scope > [data-admin-nav]") || !root.MBApi?.auth?.me) return;
       try {
-        const user = unwrap(await root.MBApi.auth.me()) || {};
-        const role = String(user.role?.name || user.roleName || user.role || "").toLowerCase();
+        const currentUser = user || unwrap(await root.MBApi.auth.me()) || {};
+        const role = String(currentUser.role?.name || currentUser.roleName || currentUser.role || "").toLowerCase();
         if (!["admin", "manager"].includes(role)) return;
         const link = root.document.createElement("a");
         link.href = "admin.html";
@@ -274,28 +325,34 @@
         link.className = "admin-nav-link";
         link.setAttribute("data-admin-nav", "");
         nav.append(link);
+        this.syncActivePill?.();
       } catch {}
     },
-    watch() {
+    watch(scope = root.document) {
       if (!("IntersectionObserver" in root)) return;
       if (!this.io) this.io = new root.IntersectionObserver((entries) => entries.forEach((entry) => {
         if (!entry.isIntersecting) return;
         entry.target.classList.add("in");
         this.io.unobserve(entry.target);
       }), { threshold: 0.14 });
-      root.document.querySelectorAll(".card, .category, .trust > div, .campaign, .stat, .state, .account-card, .cartitem, .summary, .product-notes, .admin .panel, .admin .login-panel").forEach((el) => {
+      const selector = ".card, .category, .trust > div, .campaign, .stat, .state, .account-card, .cartitem, .summary, .product-notes, .admin .panel, .admin .login-panel";
+      const observe = (el) => {
         if (el.dataset.watched) return;
         el.dataset.watched = "1";
         this.io.observe(el);
-      });
+      };
+      if (scope.matches?.(selector)) observe(scope);
+      scope.querySelectorAll?.(selector).forEach(observe);
     },
     bind() {
       if (!root.MBApi) return;
       this.mountTheme();
       this.mountNav();
-      this.mountAdminNav();
+      this.mountCustomerSession();
       this.watch();
-      new MutationObserver(() => this.watch()).observe(root.document.body, { childList: true, subtree: true });
+      new MutationObserver((records) => records.forEach((record) => record.addedNodes.forEach((node) => {
+        if (node.nodeType === 1) this.watch(node);
+      }))).observe(root.document.body, { childList: true, subtree: true });
       root.document.body.addEventListener("click", async (event) => {
         const add = event.target.closest("[data-add]");
         const open = event.target.closest("[data-open]");
@@ -330,7 +387,7 @@
           }
         }
         if (event.target.closest("[data-logout]")) {
-          try { await root.MBApi.auth.logout(); root.location.href = "index.html"; }
+          try { await root.MBApi.auth.logout(); this.syncHeaderLogout(false); root.location.href = "index.html"; }
           catch (error) { this.toast(errorMessage(error), "error"); }
         }
       });

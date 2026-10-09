@@ -1,9 +1,11 @@
 import { createApp } from "./app.js";
 import { getConfig } from "./config.js";
 import { closeDatabase, connectDatabase } from "./db.js";
+import { migrateModel } from "../scripts/migrate-model.js";
 
 const config = getConfig();
 const { client, db } = await connectDatabase(config);
+await migrateModel(db);
 const app = createApp({ db, config });
 const server = app.listen(config.port, () => {
   console.log(`Maison Belle backend listening on http://localhost:${config.port}`);

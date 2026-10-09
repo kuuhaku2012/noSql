@@ -59,8 +59,8 @@ test("returns table keeps long values aligned inside the admin panel", async () 
   const adminSource = await readFile(join(__dirname, "admin.js"), "utf8");
   const themeSource = await readFile(join(__dirname, "..", "css", "theme.css"), "utf8");
   assert.match(adminSource, /<section class="panel returns-panel">/);
-  assert.match(themeSource, /\.admin \.returns-panel table \{[\s\S]*?table-layout: fixed;/);
-  assert.match(themeSource, /\.admin \.returns-panel th,[\s\S]*?overflow-wrap: anywhere;/);
+  assert.match(themeSource, /\.admin \.returns-panel table \{[\s\S]*?min-width: 760px;[\s\S]*?table-layout: auto;/);
+  assert.match(themeSource, /\.admin \.returns-panel th,[\s\S]*?min-width: 110px;[\s\S]*?overflow-wrap: anywhere;[\s\S]*?word-break: normal;/);
 });
 
 test("product file upload control follows the active admin theme", async () => {
@@ -186,7 +186,7 @@ test("product payload accepts an uploaded image without exposing slug as an oper
 test("product creation form balances the first row and places image after description", async () => {
   const source = await readFile(join(__dirname, "admin.js"), "utf8");
   const start = source.indexOf('formBlock("Thêm sản phẩm"');
-  const end = source.indexOf('`, "TẠO SẢN PHẨM")', start);
+  const end = source.indexOf('`, "Tạo sản phẩm")', start);
   const fields = source.slice(start, end);
   assert.ok(fields.indexOf('${formField("Tên sản phẩm", "name")}') < fields.indexOf('${formField("Mã SKU phân loại", "sku")}'));
   assert.ok(fields.indexOf('${formField("Mô tả", "description", "textarea", false)}') < fields.indexOf('${imageField("Ảnh sản phẩm")}'));

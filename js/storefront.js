@@ -34,19 +34,26 @@
         const catalog = responseData(await MBApi.catalog()) || {};
         const categories = catalog.categories || [];
         const categoryGroup = $("#catalog-categories");
+        const selectedCategory = params.get("cat") || "";
+        const categoryNames = { skincare: "Chăm sóc da", makeup: "Trang điểm", body: "Chăm sóc cơ thể" };
+        const hasSelectedCategory = categories.some((item) => (item.slug || item.id || item._id) === selectedCategory);
+        const categoryFallback = selectedCategory && !hasSelectedCategory
+          ? `<label><input type="radio" name="cat" value="${esc(selectedCategory)}"> ${esc(categoryNames[selectedCategory] || selectedCategory)}</label>`
+          : "";
         categoryGroup.innerHTML = `<b>Danh mục</b><label><input type="radio" name="cat" value="" checked> Tất cả</label>${categories.map((item) => {
           const value = item.slug || item.id || item._id;
           return `<label><input type="radio" name="cat" value="${esc(value)}"> ${esc(item.name)}</label>`;
-        }).join("")}`;
-        const selectedCategory = params.get("cat") || "";
+        }).join("")}${categoryFallback}`;
         const category = [...categoryGroup.querySelectorAll("[name=cat]")].find((item) => item.value === selectedCategory);
         if (category) category.checked = true;
         const brandSelect = $("[name=brand]", filters);
         const selectedBrand = params.get("brand") || "";
+        const hasSelectedBrand = (catalog.brands || []).some((item) => (item.code || item.slug || item.id || item._id) === selectedBrand);
+        const brandFallback = selectedBrand && !hasSelectedBrand ? `<option value="${esc(selectedBrand)}">${esc(selectedBrand)}</option>` : "";
         brandSelect.innerHTML = `<option value="">Tất cả</option>${(catalog.brands || []).map((item) => {
           const value = item.code || item.slug || item.id || item._id;
           return `<option value="${esc(value)}">${esc(item.name)}</option>`;
-        }).join("")}`;
+        }).join("")}${brandFallback}`;
         if ([...brandSelect.options].some((item) => item.value === selectedBrand)) brandSelect.value = selectedBrand;
       } catch {
         let note = filters.querySelector("[data-filter-error]");
@@ -62,7 +69,7 @@
 
     async function load() {
       const query = {
-        q: $("[data-search] input[name=q]")?.value.trim() || params.get("q") || "",
+        q: $("[data-search] input[name=q]")?.value.trim() ?? params.get("q") ?? "",
         category: filters.querySelector("[name=cat]:checked")?.value || "",
         brand: filters.querySelector("[name=brand]")?.value || "",
         skinType: filters.querySelector("[name=skinType]")?.value || "",
@@ -79,7 +86,14 @@
         const { items } = MBApi.list(response);
         const normalized = items.map(MB.normalizeProduct);
         if (!normalized.length) {
-          MB.showState(grid, "empty", "Chưa có sản phẩm phù hợp. Hãy thử bỏ bớt bộ lọc.");
+          const narrowed = Boolean(query.q || query.category || query.brand || query.skinType || query.minPrice || query.maxPrice || query.sale);
+          const message = narrowed
+            ? "Chưa tìm thấy sản phẩm với các lựa chọn hiện tại. Hãy bỏ bộ lọc để xem toàn bộ cửa hàng."
+            : "Cửa hàng đang cập nhật sản phẩm. Bạn có thể xem ưu đãi mới hoặc đặt lịch tư vấn routine.";
+          const actions = narrowed
+            ? '<button class="outline" type="button" data-clear-filters>BỎ BỘ LỌC</button>'
+            : '<a class="outline" href="offers.html">XEM ƯU ĐÃI</a><a class="outline" href="consultation.html">ĐẶT LỊCH TƯ VẤN</a>';
+          MB.showState(grid, "empty", message, actions);
         } else grid.innerHTML = normalized.map(MB.card).join("");
         const pagination = response?.pagination || {};
         const total = pagination.total ?? normalized.length;
@@ -100,7 +114,24 @@
     $("#page-prev")?.addEventListener("click", () => { page = Math.max(1, page - 1); load(); });
     $("#page-next")?.addEventListener("click", () => { page += 1; load(); });
     $("#apply-filters")?.addEventListener("click", () => { page = 1; load(); });
-    document.body.addEventListener("click", (event) => { if (event.target.closest("[data-retry]")) load(); });
+    document.body.addEventListener("click", (event) => {
+      if (event.target.closest("[data-retry]")) load();
+      if (event.target.closest("[data-clear-filters]")) {
+        params.delete("q"); params.delete("cat"); params.delete("brand"); params.delete("skinType");
+        params.delete("sale"); params.delete("promotion");
+        const allCategories = filters.querySelector('[name="cat"][value=""]');
+        if (allCategories) allCategories.checked = true;
+        $("[data-search] input[name=q]").value = "";
+        $("[name=brand]", filters).value = "";
+        $("[name=skinType]", filters).value = "";
+        $("#min-price").value = ""; $("#max-price").value = ""; $("#sort").value = "";
+        const cleanUrl = new URL(location.href);
+        ["q", "cat", "brand", "skinType", "minPrice", "maxPrice", "sort", "sale", "promotion"].forEach((key) => cleanUrl.searchParams.delete(key));
+        window.history.replaceState(null, "", cleanUrl);
+        page = 1;
+        load();
+      }
+    });
     await populateFilters();
     await load();
   }
@@ -120,7 +151,7 @@
         document.title = `${product.name} — Maison Belle`;
         const variants = product.variants;
         const currentVariant = variants.find((item) => String(item._id || item.id) === product.variantId) || variants[0];
-        const image = product.image ? `<img id="main-img" src="${esc(product.image)}" alt="${esc(product.name)}">` : '<div class="image-pending">Ảnh sản phẩm đang cập nhật</div>';
+        const image = product.image ? `<img id="main-img" src="${esc(product.image)}" alt="${esc(product.name)}" fetchpriority="high" decoding="async">` : '<div class="image-pending">Ảnh sản phẩm đang cập nhật</div>';
         const variantOptions = variants.map((variant, index) => {
           const variantId = String(variant._id || variant.id || "");
           const label = variant.size || variant.volume || variant.label || variant.name || variant.sku || `Phân loại ${index + 1}`;
@@ -141,7 +172,7 @@
               <div class="choice"><b>Phân loại</b>${variantOptions || '<span>Chưa có phân loại đang bán</span>'}</div>
               <div class="choice"><b>Số lượng</b><span class="qty"><button type="button" id="minus" aria-label="Giảm số lượng">−</button><span id="qty">1</span><button type="button" id="plus" aria-label="Tăng số lượng">+</button></span><span class="stock-note">${Number.isFinite(product.stock) ? (product.stock > 0 ? `Còn ${product.stock}` : "Hết hàng") : "Tình trạng kho xác nhận khi đặt hàng"}</span></div>
               <div class="actions"><button class="btn" id="detail-add" data-add="${esc(product.id)}" data-variant="${esc(currentVariant?._id || currentVariant?.id || "")}" data-size="${esc(currentVariant?.volume || currentVariant?.size || "")}" ${!currentVariant || product.stock === 0 ? "disabled" : ""}>THÊM VÀO GIỎ</button><a class="outline" href="cart.html">XEM GIỎ HÀNG</a></div>
-              <a class="textlink" href="account.html#appointments">Đặt lịch tư vấn & chăm sóc da →</a>
+              <a class="textlink" href="consultation.html">Đặt lịch tư vấn & chăm sóc da →</a>
             </div>
           </div>
           <section class="panel product-notes"><h2>Mô tả sản phẩm</h2><p>${esc(product.desc || "Chưa có mô tả chi tiết.")}</p>${product.ingredients ? `<h3>Thành phần</h3><p>${esc(product.ingredients)}</p>` : ""}${product.howToUse ? `<h3>Cách sử dụng</h3><p>${esc(product.howToUse)}</p>` : ""}</section>
@@ -266,7 +297,7 @@
           MB.showState(host, "empty", "Giỏ hàng đang trống. Hãy khám phá bộ sưu tập để chọn sản phẩm.", '<a class="btn" href="products.html">KHÁM PHÁ SẢN PHẨM</a>');
         } else {
           host.innerHTML = currentItems.map((item) => `<article class="cartitem">
-            <div class="cart-thumb">${item.product.image ? `<img src="${esc(item.product.image)}" alt="${esc(item.product.name)}">` : "Ảnh đang cập nhật"}</div>
+            <div class="cart-thumb">${item.product.image ? `<img src="${esc(item.product.image)}" alt="${esc(item.product.name)}" loading="lazy" decoding="async">` : "Ảnh đang cập nhật"}</div>
             <div><span class="brand">${esc(item.product.brand)}</span>${demoTag(item.product)}<h3>${esc(item.product.name)}</h3><small>${esc(item.size || item.product.sku || "")}</small>${item.available ? "" : '<p class="form-message">Không lấy được giá và thông tin sản phẩm. Hãy xóa dòng này rồi thêm lại từ danh mục.</p>'}
               <div class="qty"><button type="button" data-qty="-1" data-variant="${esc(item.variantId)}" aria-label="Giảm số lượng" ${item.available ? "" : "disabled"}>−</button><span>${item.quantity}</span><button type="button" data-qty="1" data-variant="${esc(item.variantId)}" aria-label="Tăng số lượng" ${item.available ? "" : "disabled"}>+</button></div>
               <button class="remove" type="button" data-remove="${esc(item.variantId)}">Xóa khỏi giỏ</button></div><b>${MB.money(item.unitPrice * item.quantity)}</b></article>`).join("");
@@ -370,7 +401,7 @@
     if (!host) return;
     function loginForm(message = new URLSearchParams(location.search).get("next") === "checkout"
       ? "Đăng nhập để tiếp tục đặt hàng. Giỏ hàng của bạn đã được lưu."
-      : "Đăng nhập để quản lý đơn hàng và lịch hẹn.") {
+      : "Đăng nhập để quản lý đơn hàng, hồ sơ và địa chỉ.") {
       const rememberedEmail = MB.rememberedEmail();
       host.innerHTML = `<section class="account-auth">
         <aside class="account-story"><span class="eyebrow">MAISON BELLE · CHĂM SÓC CÓ CHỦ ĐÍCH</span><h1>Một nghi thức nhỏ.<br><em>Một làn da được lắng nghe.</em></h1><p>Tìm sản phẩm phù hợp, lưu lại hành trình đơn hàng và kết nối với đội ngũ tư vấn của Maison Belle.</p><div class="story-points"><span>01 <b>Tuyển chọn theo nhu cầu</b></span><span>02 <b>Lịch sử mua sắm rõ ràng</b></span><span>03 <b>Tư vấn chăm sóc cá nhân</b></span></div><small>BEAUTY, WITH INTENTION</small></aside>
@@ -401,6 +432,10 @@
             location.assign("cart.html?checkout=1");
             return;
           }
+          if (new URLSearchParams(location.search).get("next") === "consultation") {
+            location.assign("consultation.html");
+            return;
+          }
           await load();
         } catch (error) { messageEl.textContent = MB.errorMessage(error); }
         finally { submit.disabled = false; }
@@ -423,6 +458,10 @@
             location.assign("cart.html?checkout=1");
             return;
           }
+          if (new URLSearchParams(location.search).get("next") === "consultation") {
+            location.assign("consultation.html");
+            return;
+          }
           await load();
         } catch (error) { message.textContent = MB.errorMessage(error); }
         finally { submit.disabled = false; }
@@ -432,21 +471,18 @@
       MB.showState(host, "loading", "Đang kiểm tra phiên đăng nhập…");
       try {
         const user = responseData(await MBApi.auth.me()) || {};
+        MB.syncHeaderLogout?.(true);
         const role = user.role?.name || user.role || user.roleName || "customer";
         const ordersPromise = MBApi.orders.list({ page: 1, limit: 20 });
-        const appointmentsPromise = MBApi.appointments.list({ page: 1, limit: 20 });
-        const [ordersResult, appointmentsResult, addressesResult, loyaltyResult, returnsResult] = await Promise.allSettled([
-          ordersPromise, appointmentsPromise, MBApi.customers.addresses.list(), MBApi.customers.loyalty(), MBApi.returns.list({ page: 1, limit: 20 })
+        const [ordersResult, addressesResult, loyaltyResult, returnsResult] = await Promise.allSettled([
+          ordersPromise, MBApi.customers.addresses.list(), MBApi.customers.loyalty(), MBApi.returns.list({ page: 1, limit: 20 })
         ]);
         const orders = ordersResult.status === "fulfilled" ? listData(ordersResult.value) : [];
-        const appointments = appointmentsResult.status === "fulfilled" ? listData(appointmentsResult.value) : [];
         const addresses = addressesResult.status === "fulfilled" ? listData(addressesResult.value) : [];
         const loyalty = loyaltyResult.status === "fulfilled" ? responseData(loyaltyResult.value) || {} : {};
         const returns = returnsResult.status === "fulfilled" ? listData(returnsResult.value) : [];
         host.innerHTML = `<div class="account-top"><div><span class="eyebrow">HỒ SƠ KHÁCH HÀNG</span><h1>${esc(user.fullName || user.name || user.email || "Tài khoản")}</h1><p>${esc(role)} · ${esc(user.email || "")}</p></div><button class="outline" type="button" data-logout>ĐĂNG XUẤT</button></div>
           <section id="orders" class="account-card"><div class="section-head"><div><span class="eyebrow">LỊCH SỬ GIAO DỊCH</span><h2>Đơn hàng của tôi</h2></div></div><div id="orders-list"></div><div id="order-detail"></div></section>
-          <section id="appointments" class="account-card"><div class="section-head"><div><span class="eyebrow">CHĂM SÓC CÁ NHÂN</span><h2>Lịch tư vấn & chăm sóc da</h2></div></div>
-            <form id="appointment-form" class="form-grid"><label class="field">Ngày hẹn<input type="date" name="appointmentDate" required min="${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)}"></label><label class="field">Bắt đầu<input type="time" name="startTime" required></label><label class="field">Kết thúc<input type="time" name="endTime" required></label><label class="field">Nội dung tư vấn<select name="consultationType" required><option value="skincare">Chăm sóc da</option><option value="makeup">Trang điểm</option><option value="product">Tư vấn sản phẩm</option></select></label><label class="field">Ghi chú<textarea name="customerNote" rows="3" placeholder="Loại da, mối quan tâm hoặc sản phẩm cần tư vấn"></textarea></label><button class="btn" type="submit">GỬI YÊU CẦU ĐẶT LỊCH</button><p class="form-message" role="status"></p></form><div id="appointments-list"></div></section>
           <section class="account-card"><div class="section-head"><div><span class="eyebrow">THÔNG TIN CỦA BẠN</span><h2>Hồ sơ & địa chỉ</h2></div></div>
             <form id="profile-form" class="form-grid"><label class="field">Họ tên<input name="fullName" value="${esc(user.fullName || "")}" required></label><label class="field">Số điện thoại<input name="phone" value="${esc(user.phone || "")}" autocomplete="tel"></label><label class="field">Loại da<select name="skinType"><option value="">Chưa cập nhật</option>${[["oily","Da dầu"],["dry","Da khô"],["sensitive","Da nhạy cảm"],["combination","Da hỗn hợp"],["normal","Da thường"]].map(([value,label]) => `<option value="${value}" ${user.skinType === value ? "selected" : ""}>${label}</option>`).join("")}</select></label><button class="btn" type="submit">LƯU HỒ SƠ</button><p class="form-message" role="status"></p></form>
             <div class="section-head"><h3>Địa chỉ nhận hàng</h3></div><div id="address-list">${addressesResult.status === "rejected" ? "" : addresses.length ? addresses.map((address) => `<article class="address-row"><div><b>${esc(address.receiverName)}</b> · ${esc(address.receiverPhone)} ${address.isDefault ? '<span class="pill">MẶC ĐỊNH</span>' : ""}<p>${esc(address.fullAddress)}</p></div><button class="textlink" type="button" data-delete-address="${esc(address.id || address._id)}">Xóa</button></article>`).join("") : '<p class="empty">Chưa lưu địa chỉ nhận hàng.</p>'}</div>
@@ -462,27 +498,6 @@
           const mockPayment = order.paymentMethod === "mock" && paymentState !== "paid" && !["cancelled", "returned"].includes(status);
           return `<tr><td>${esc(order.orderCode || order.code || id || "—")} ${demoTag(order)}</td><td>${esc(order.createdAt ? new Date(order.createdAt).toLocaleDateString("vi-VN") : "—")}</td><td>${MB.money(order.finalAmount ?? order.totalAmount ?? order.total ?? 0)}</td><td>${esc(statusText(status))}</td><td><button type="button" class="textlink" data-order-detail="${esc(id)}">Chi tiết & hóa đơn</button>${mockPayment ? ` · <button type="button" class="textlink" data-pay-order="${esc(id)}">${paymentState === "failed" ? "Thử thanh toán lại" : "Thanh toán mô phỏng"}</button>` : ""}${status.toLowerCase() === "pending" ? ` · <button type="button" class="textlink" data-cancel-order="${esc(id)}">Hủy đơn</button>` : ""}</td></tr>`;
         }).join("")}</tbody></table></div>`;
-        const appointmentHost = $("#appointments-list");
-        if (appointmentsResult.status === "rejected") MB.showState(appointmentHost, "error", MB.errorMessage(appointmentsResult.reason));
-        else if (!appointments.length) MB.showState(appointmentHost, "empty", "Chưa có lịch hẹn.");
-        else appointmentHost.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Ngày & giờ</th><th>Nội dung</th><th>Trạng thái</th><th></th></tr></thead><tbody>${appointments.map((item) => `<tr><td>${esc(item.appointmentDate || item.date || "—")} · ${esc(item.startTime || "")}–${esc(item.endTime || "")}</td><td>${esc(item.consultationType || "—")}</td><td>${esc(item.status || "requested")}</td><td>${item.status === "requested" ? `<button type="button" class="textlink" data-cancel-appointment="${esc(item.id || item._id)}">Hủy lịch</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
-        $("#appointment-form").addEventListener("submit", async (event) => {
-          event.preventDefault();
-          const form = event.currentTarget, message = $(".form-message", form), button = form.querySelector("[type=submit]");
-          button.disabled = true; message.textContent = "Đang gửi yêu cầu…";
-          try {
-            const body = Object.fromEntries(new FormData(form).entries());
-            if (body.endTime <= body.startTime) throw new Error("Giờ kết thúc phải sau giờ bắt đầu.");
-            const availability = responseData(await MBApi.appointments.availability({ appointmentDate: body.appointmentDate, startTime: body.startTime, endTime: body.endTime })) || {};
-            if (!availability.available) throw new Error("Khung giờ vừa chọn đã có lịch. Vui lòng chọn thời gian khác.");
-            await MBApi.appointments.create(body);
-            message.textContent = "Yêu cầu đã gửi. Lịch có hiệu lực sau khi cửa hàng xác nhận.";
-            form.reset();
-            const refreshed = listData(await MBApi.appointments.list({ page: 1, limit: 20 }));
-            $("#appointments-list").innerHTML = refreshed.length ? `<div class="table-wrap"><table><thead><tr><th>Ngày & giờ</th><th>Nội dung</th><th>Trạng thái</th><th></th></tr></thead><tbody>${refreshed.map((item) => `<tr><td>${esc(item.appointmentDate || item.date || "—")} · ${esc(item.startTime || "")}–${esc(item.endTime || "")}</td><td>${esc(item.consultationType || "—")}</td><td>${esc(item.status || "requested")}</td><td>${item.status === "requested" ? `<button type="button" class="textlink" data-cancel-appointment="${esc(item.id || item._id)}">Hủy lịch</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : "";
-          } catch (error) { message.textContent = MB.errorMessage(error); }
-          finally { button.disabled = false; }
-        });
       } catch (error) {
         if (error.status === 401) loginForm();
         else showError(host, error);
@@ -508,7 +523,6 @@
       }
       const detailButton = event.target.closest("[data-order-detail]");
       const cancelButton = event.target.closest("[data-cancel-order]");
-      const cancelAppointment = event.target.closest("[data-cancel-appointment]");
       const paymentButton = event.target.closest("[data-pay-order]");
       const deleteAddressButton = event.target.closest("[data-delete-address]");
       if (detailButton) {
@@ -546,13 +560,6 @@
         try { await MBApi.orders.updateStatus(cancelButton.dataset.cancelOrder, { status: "cancelled" }); MB.toast("Đơn đã được cập nhật.", "success"); await load(); }
         catch (error) { MB.toast(MB.errorMessage(error), "error"); }
         finally { cancelButton.disabled = false; }
-      }
-      if (cancelAppointment) {
-        if (!root.confirm("Bạn muốn hủy yêu cầu lịch hẹn này chứ?")) return;
-        cancelAppointment.disabled = true;
-        try { await MBApi.appointments.update(cancelAppointment.dataset.cancelAppointment, { status: "cancelled" }); MB.toast("Lịch hẹn đã được hủy.", "success"); await load(); }
-        catch (error) { MB.toast(MB.errorMessage(error), "error"); }
-        finally { cancelAppointment.disabled = false; }
       }
     });
     host.addEventListener("change", (event) => {
