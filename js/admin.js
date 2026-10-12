@@ -128,6 +128,10 @@
   const numberValue = (value, fallback = 0) => value === "" || value === null || value === undefined ? fallback : Number(value) || 0;
   const booleanValue = (value) => value === true || value === "true";
   function crudActionPayload(action, values = {}) {
+    if (action === "create-shipping-rate" || action === "update-shipping-rate") return {
+      regionCode: values.regionCode, regionName: values.regionName,
+      fee: Number(values.fee), isActive: booleanValue(values.isActive)
+    };
     if (action === "create-product") return {
       name: values.name,
       ...(values.slug ? { slug: values.slug } : {}),
@@ -253,11 +257,18 @@
   function selectField(label, name, options, required = true) {
     return `<label class="field">${label}<select name="${name}" ${required ? "required" : ""}>${options}</select></label>`;
   }
+  function shippingRateFields(rate = {}) {
+    return `${formField("Mã vùng", "regionCode", "text", true, `value="${esc(rate.regionCode || "")}"`)}
+      ${formField("Tên hiển thị", "regionName", "text", true, `value="${esc(rate.regionName || "")}"`)}
+      ${formField("Phí giao hàng (demo VND)", "fee", "number", true, `min="0" step="any" value="${esc(rate.fee ?? 0)}"`)}
+      ${selectField("Trạng thái", "isActive", `<option value="true"${rate.isActive !== false ? " selected" : ""}>Đang dùng</option><option value="false"${rate.isActive === false ? " selected" : ""}>Ngừng áp dụng</option>`)}`;
+  }
   function formBlock(title, action, fields, submit) {
     const copy = {
       "create-category": ["PHÂN LOẠI CATALOG", "Tạo nhóm sản phẩm mới để khách hàng tìm đúng dòng sản phẩm nhanh hơn."],
       "create-product": ["DANH MỤC SẢN PHẨM", "Thêm sản phẩm, phân loại và giá bán vào cửa hàng."],
       "create-brand": ["THƯƠNG HIỆU", "Thiết lập thương hiệu để nhóm và giới thiệu sản phẩm nhất quán."],
+      "create-shipping-rate": ["PHÍ GIAO HÀNG DEMO", "Chỉ dùng mức phí minh họa bằng demo VND, không phải báo giá vận chuyển thực tế."],
       "stock-receipt": ["NHẬP KHO", "Ghi nhận hàng mới nhập để tồn kho được cập nhật chính xác."],
       "create-promotion": ["ƯU ĐÃI SẢN PHẨM", "Tạo chương trình giá ưu đãi theo thời gian và sản phẩm."],
       "create-voucher": ["MÃ GIẢM GIÁ", "Phát hành mã giảm giá với điều kiện sử dụng rõ ràng."],
@@ -598,7 +609,7 @@
     }
 
     async function masterDataView() {
-      await listOrState(() => root.MBApi.admin.catalog.list(), (response) => {
+      await listOrState(() => Promise.all([root.MBApi.admin.catalog.list(), root.MBApi.admin.shippingRates.list()]), ([response, rateResponse]) => {
         const catalog = data(response) || {}, categories = catalog.categories || [], brands = catalog.brands || [], stores = catalog.stores || [];
         const rowsFor = (items, kind) => items.map((item) => {
           const id = item.id || item._id;
@@ -608,6 +619,13 @@
         const editable = currentRole === "manager";
         const categoryFields = `${formField("Tên danh mục", "name", "text", true, 'placeholder="Ví dụ: Chăm sóc da"')}<label class="field">Mã đường dẫn<input name="slug" placeholder="cham-soc-da" required><small>Chữ thường, không dấu; dùng dấu gạch ngang để ngăn cách.</small></label>${formField("Mô tả", "description", "textarea", false, 'placeholder="Mô tả ngắn về nhóm sản phẩm này"')}`;
         const categoryForm = editable ? formBlock("Thêm danh mục", "create-category", categoryFields, "Tạo danh mục") : "";
+        const rates = rows(rateResponse);
+        const rateRows = rates.map((item) => {
+          const id = item.id || item._id;
+          const edit = `<details><summary>Chỉnh sửa</summary><form data-admin-action="update-shipping-rate" data-id="${esc(id)}" class="form-grid">${shippingRateFields(item)}<button class="btn" type="submit">Lưu thay đổi</button><p class="form-message" role="status"></p></form></details>`;
+          const deactivate = item.isActive === false ? "" : `<form data-admin-action="remove-shipping-rate" data-id="${esc(id)}"><button class="outline danger" type="submit">Ngừng áp dụng</button><p class="form-message" role="status"></p></form>`;
+          return `<tr><td>${esc(item.regionCode)}</td><td>${esc(item.regionName)} ${demo(item)}</td><td>${money(item.fee)}</td><td>${statusTag(item.isActive === false ? "inactive" : "active", item.isActive === false ? "Ngừng áp dụng" : "Đang dùng")}</td><td>${editable ? rowActions(edit + deactivate, `shipping-rate-${id}`) : "Chỉ xem"}</td></tr>`;
+        }).join("");
         const storeRows = stores.map((item) => `<tr><td>${esc(item.name)} ${demo(item)}</td><td>${esc(item.address || "—")}</td><td>${statusTag(item.isActive === false ? "inactive" : "active", item.isActive === false ? "Đã đóng" : "Đang hoạt động")}</td></tr>`).join("");
         host.innerHTML = `${categoryForm}
           ${editable ? formBlock("Thêm thương hiệu", "create-brand", `${formField("Tên thương hiệu", "name")}${formField("Mã thương hiệu", "code")}${formField("Đường dẫn", "slug", "text", false)}${formField("Xuất xứ", "origin", "text", false)}`, "Tạo thương hiệu") : ""}
@@ -615,7 +633,9 @@
             ${tableSection("PHÂN LOẠI CATALOG", "Danh mục", categories.length, categories.length ? table(["Tên", "Mã", "Trạng thái", "Thao tác"], rowsFor(categories, "categories")) : "<p class='empty'>Chưa có danh mục.</p>")}
             ${tableSection("THƯƠNG HIỆU", "Nhãn hàng", brands.length, brands.length ? table(["Tên", "Mã", "Trạng thái", "Thao tác"], rowsFor(brands, "brands")) : "<p class='empty'>Chưa có thương hiệu.</p>")}
             ${tableSection("ĐIỂM BÁN", "Cửa hàng", stores.length, stores.length ? table(["Cửa hàng", "Địa chỉ", "Trạng thái"], storeRows) : "<p class='empty'>Chưa có cửa hàng.</p>")}
-          </section>`;
+          </section>
+          ${editable ? formBlock("Thêm phí giao hàng demo", "create-shipping-rate", shippingRateFields(), "Tạo mức phí") : ""}
+          <section class="panel"><h2>Phí giao hàng demo</h2><p class="service">Mức phí minh họa bằng demo VND, không phải báo giá vận chuyển thực tế.</p>${rates.length ? table(["Mã vùng", "Tên hiển thị", "Phí (demo VND)", "Trạng thái", "Thao tác"], rateRows) : "<p class='empty'>Chưa có mức phí giao hàng demo.</p>"}</section>`;
       });
     }
 
@@ -845,7 +865,7 @@
       const values = Object.fromEntries(new FormData(form).entries());
       const message = form.querySelector(".form-message");
       const button = form.querySelector("[type=submit]");
-      const destructive = ["remove-product", "remove-promotion", "remove-voucher", "remove-catalog"].includes(action);
+      const destructive = ["remove-product", "remove-promotion", "remove-voucher", "remove-catalog", "remove-shipping-rate"].includes(action);
       const confirmMessage = "Thao tác này sẽ ẩn bản ghi khỏi hoạt động. Bạn có chắc chắn không?";
       if (destructive && typeof root.confirm === "function" && !root.confirm(confirmMessage)) return;
       if (destructive && typeof root.confirm !== "function" && typeof root.window?.confirm === "function" && !root.window.confirm(confirmMessage)) return;
@@ -879,6 +899,9 @@
         else if (action === "create-brand") await root.MBApi.admin.catalog.create("brands", { name: values.name, code: values.code, slug: values.slug, origin: values.origin });
         else if (action === "catalog-status") await root.MBApi.admin.catalog.update(form.dataset.kind, form.dataset.id, crudActionPayload(action, values));
         else if (action === "remove-catalog") await root.MBApi.admin.catalog.remove(form.dataset.kind, form.dataset.id);
+        else if (action === "create-shipping-rate") await root.MBApi.admin.shippingRates.create(crudActionPayload(action, values));
+        else if (action === "update-shipping-rate") await root.MBApi.admin.shippingRates.update(form.dataset.id, crudActionPayload(action, values));
+        else if (action === "remove-shipping-rate") await root.MBApi.admin.shippingRates.remove(form.dataset.id);
         root.MB.toast("Đã gửi yêu cầu đến hệ thống.", "success");
         await renderView();
       } catch (error) {

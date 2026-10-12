@@ -2,7 +2,120 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
+const { runInNewContext } = require("node:vm");
+const { createApi } = require("./api.js");
+const MB = require("./app.js");
 const { canAccess, defaultView, pickRole, reportFields, reportSummaryEntries, formatReportDate, dashboardMetrics, reportChartData, crudActionPayload, rowActions, actionPopoverPosition } = require("./admin.js");
+
+async function shippingRatePage(role = "manager", rates = [], failure = null) {
+  const requests = [], events = {}, messages = [], states = [];
+  const host = {
+    innerHTML: "", children: [],
+    querySelector: () => null, querySelectorAll: () => [],
+    addEventListener: (name, handler) => { events[name] = handler; }
+  };
+  const nav = { dataset: { navView: "master-data" }, classList: { toggle() {} }, setAttribute() {}, removeAttribute() {} };
+  let confirmed = true, confirmations = 0;
+  const api = createApi(async (url, options) => {
+    const body = options.body === undefined ? undefined : JSON.parse(options.body);
+    requests.push([url, options.method, body]);
+    if (url === "/api/auth/me") return Response.json({ data: { role, fullName: "Staff" } });
+    if (url === "/api/admin/catalog") return Response.json({ data: { categories: [], brands: [], stores: [] } });
+    if (failure && options.method !== "GET") return Response.json({ error: failure }, { status: 409 });
+    return Response.json({ data: rates });
+  });
+  const sandbox = {
+    module: { exports: {} }, URLSearchParams,
+    location: { search: "?view=master-data" }, addEventListener() {},
+    document: {
+      addEventListener() {},
+      querySelector: (selector) => selector === "#admin-content" ? host : selector === "#view-title" ? {} : null,
+      querySelectorAll: () => [nav]
+    },
+    MBApi: api,
+    MB: { ...MB, toast: (...args) => messages.push(args), showState: (target, kind, message) => { states.push(kind); target.innerHTML = message; } },
+    FormData: class { constructor(form) { this.values = form.values; } entries() { return Object.entries(this.values); } },
+    confirm: () => { confirmations++; return confirmed; }
+  };
+  runInNewContext(await readFile(join(__dirname, "admin.js"), "utf8"), sandbox);
+  sandbox.module.exports.bind();
+  await new Promise(setImmediate);
+  return {
+    host, nav, requests, messages, states,
+    cancel: () => { confirmed = false; },
+    confirmations: () => confirmations,
+    async submit(action, values = {}, id = "rate-1") {
+      const message = { textContent: "" }, button = { disabled: false };
+      const form = { dataset: { adminAction: action, id }, values, querySelector: (selector) => selector === ".form-message" ? message : button };
+      await events.submit({ preventDefault() {}, target: { closest: (selector) => selector === "form[data-admin-action]" ? form : null } });
+      return { message, button };
+    }
+  };
+}
+
+test("shipping-rate master-data access is manager-only", async () => {
+  assert.equal(canAccess("manager", "master-data"), true);
+  assert.equal(canAccess("sales", "master-data"), false);
+  assert.equal(canAccess("warehouse", "master-data"), false);
+  for (const role of ["sales", "warehouse"]) {
+    const page = await shippingRatePage(role);
+    assert.equal(page.nav.hidden, true);
+    assert.deepEqual(page.states, ["forbidden"]);
+    assert.doesNotMatch(page.host.innerHTML, /data-admin-action="create-shipping-rate"/);
+    assert.deepEqual(page.requests.map(([url]) => url), ["/api/auth/me"]);
+  }
+});
+
+test("shipping-rate manager panel renders demo VND fields, escaped rates and edit/deactivate controls", async () => {
+  const page = await shippingRatePage("manager", [
+    { id: "rate-1", regionCode: "hcm-demo", regionName: '<img src=x onerror="run()">', fee: 25000, isActive: true, isDemo: true },
+    { id: "rate-2", regionCode: "other-demo", regionName: "Khác", fee: 0, isActive: false, isDemo: true }
+  ]);
+  assert.equal(page.nav.hidden, false);
+  assert.ok(page.requests.some(([url]) => url === "/api/admin/shipping-rates"));
+  assert.match(page.host.innerHTML, /data-admin-action="create-shipping-rate"/);
+  assert.match(page.host.innerHTML, /data-admin-action="update-shipping-rate"/);
+  assert.match(page.host.innerHTML, /data-admin-action="remove-shipping-rate"/);
+  for (const name of ["regionCode", "regionName", "fee", "isActive"]) assert.match(page.host.innerHTML, new RegExp(`name="${name}"`));
+  assert.match(page.host.innerHTML, /demo VND/);
+  assert.match(page.host.innerHTML, /name="fee"[^>]*min="0"/);
+  assert.match(page.host.innerHTML, /value="25000"/);
+  assert.match(page.host.innerHTML, /value="0"/);
+  assert.match(page.host.innerHTML, /value="false" selected/);
+  assert.match(page.host.innerHTML, /status-neutral/);
+  assert.match(page.host.innerHTML, /&lt;img src=x onerror=&quot;run\(\)&quot;&gt;/);
+  assert.doesNotMatch(page.host.innerHTML, /<img src=x/);
+});
+
+test("shipping-rate manager panel creates and edits typed payloads then refreshes", async () => {
+  const page = await shippingRatePage();
+  await page.submit("create-shipping-rate", { regionCode: "hcm-demo", regionName: "TP. Hồ Chí Minh", fee: "25000", isActive: "true" });
+  await page.submit("update-shipping-rate", { regionCode: "other-demo", regionName: "Khác", fee: "0", isActive: "false" }, "rate /?#");
+  assert.deepEqual(page.requests.filter(([, method]) => method !== "GET"), [
+    ["/api/admin/shipping-rates", "POST", { regionCode: "hcm-demo", regionName: "TP. Hồ Chí Minh", fee: 25000, isActive: true }],
+    ["/api/admin/shipping-rates/rate%20%2F%3F%23", "PATCH", { regionCode: "other-demo", regionName: "Khác", fee: 0, isActive: false }]
+  ]);
+  assert.equal(page.requests.filter(([url, method]) => url === "/api/admin/shipping-rates" && method === "GET").length, 3);
+  assert.equal(page.messages.filter(([, tone]) => tone === "success").length, 2);
+});
+
+test("shipping-rate manager panel confirms soft deactivation and respects cancellation", async () => {
+  const page = await shippingRatePage();
+  await page.submit("remove-shipping-rate");
+  page.cancel();
+  await page.submit("remove-shipping-rate");
+  assert.equal(page.confirmations(), 2);
+  assert.deepEqual(page.requests.filter(([, method]) => method === "DELETE"), [["/api/admin/shipping-rates/rate-1", "DELETE", undefined]]);
+  assert.equal(page.requests.filter(([url, method]) => url === "/api/admin/shipping-rates" && method === "GET").length, 2);
+});
+
+test("shipping-rate manager panel shows API write errors and re-enables submit", async () => {
+  const page = await shippingRatePage("manager", [], { code: "DUPLICATE_SHIPPING_RATE", message: "Shipping region code already exists" });
+  const { message, button } = await page.submit("create-shipping-rate", { regionCode: "hcm-demo", regionName: "TP. Hồ Chí Minh", fee: "25000", isActive: "true" });
+  assert.equal(message.textContent, MB.errorMessage({ status: 409, code: "DUPLICATE_SHIPPING_RATE", message: "Shipping region code already exists" }));
+  assert.equal(button.disabled, false);
+  assert.equal(page.messages.length, 0);
+});
 
 test("staff navigation reflects the role while manager can inspect every supported view", () => {
   assert.equal(canAccess("warehouse", "inventory"), true);

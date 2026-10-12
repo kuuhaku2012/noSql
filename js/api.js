@@ -113,6 +113,12 @@
         create: (body) => send("POST", "/api/returns", body)
       },
       admin: {
+        shippingRates: {
+          list: () => get("/api/admin/shipping-rates"),
+          create: (body) => send("POST", "/api/admin/shipping-rates", body),
+          update: (id, body) => request(idPath("/api/admin/shipping-rates", id), { method: "PATCH", body }),
+          remove: (id) => request(idPath("/api/admin/shipping-rates", id), { method: "DELETE" })
+        },
         products: {
           list: (query) => get("/api/admin/products", query),
           create: (body) => send("POST", "/api/admin/products", body),

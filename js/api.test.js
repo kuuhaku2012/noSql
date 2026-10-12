@@ -2,6 +2,28 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createApi } = require("./api.js");
 
+for (const [operation, args, url, method, body] of [
+  ["list", [], "/api/admin/shipping-rates", "GET", undefined],
+  ["create", [{ regionCode: "hcm-demo", regionName: "TP. Hồ Chí Minh", fee: 25000, isActive: true }], "/api/admin/shipping-rates", "POST", { regionCode: "hcm-demo", regionName: "TP. Hồ Chí Minh", fee: 25000, isActive: true }],
+  ["update", ["rate /?#", { regionCode: "other-demo", regionName: "Khác", fee: 0, isActive: false }], "/api/admin/shipping-rates/rate%20%2F%3F%23", "PATCH", { regionCode: "other-demo", regionName: "Khác", fee: 0, isActive: false }],
+  ["remove", ["rate /?#"], "/api/admin/shipping-rates/rate%20%2F%3F%23", "DELETE", undefined]
+]) {
+  test(`admin shipping-rate ${operation} uses the manager endpoint and JSON contract`, async () => {
+    let captured;
+    const api = createApi(async (url, options) => {
+      captured = { url, options };
+      return Response.json({ data: { id: "rate-1", isActive: false } });
+    });
+    const result = await api.admin.shippingRates[operation](...args);
+    assert.equal(captured.url, url);
+    assert.equal(captured.options.method, method);
+    assert.equal(captured.options.credentials, "same-origin");
+    assert.deepEqual(captured.options.body === undefined ? undefined : JSON.parse(captured.options.body), body);
+    assert.equal(captured.options.headers["Content-Type"], body === undefined ? undefined : "application/json");
+    assert.equal(result.data.id, "rate-1");
+  });
+}
+
 test("catalog query maps customer filters to the agreed API parameters", async () => {
   let requestedUrl = "";
   const api = createApi(async (url) => {
