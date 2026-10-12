@@ -240,7 +240,10 @@ export async function transitionOrder({ db, order, user, status, note = "" }) {
   if (status === "completed" && !order.stockCommitted) {
     await db.collection("payments").updateOne({ orderId: order._id }, { $set: { status: "paid", paidAt: now, updatedAt: now } });
     await db.collection("invoices").updateOne({ orderId: order._id }, { $set: { status: "issued", issuedAt: now, updatedAt: now } });
-    const points = Math.floor(Number(order.finalAmount || 0) / 10000);
+    const loyaltyAmount = order.subtotal == null
+      ? Number(order.finalAmount || 0) - Number(order.deliveryFee || 0)
+      : Number(order.subtotal) - Number(order.discountAmount || 0);
+    const points = Math.floor(Math.max(0, loyaltyAmount) / 10000);
     if (points > 0 && !await db.collection("point_histories").findOne({ orderId: order._id, type: "earned" })) {
       await db.collection("memberships").updateOne({ userId: order.userId }, {
         $setOnInsert: { _id: new ObjectId(), userId: order.userId, tier: "bronze", createdAt: now },
