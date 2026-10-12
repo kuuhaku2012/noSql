@@ -5,6 +5,15 @@ import { collections } from "../src/collections.js";
 export async function createIndexes(db) {
   const c = collections(db);
   const created = [];
+  const duplicateShippingCodes = await c.shippingRates.aggregate([
+    { $match: { code: { $type: "string" } } },
+    { $group: { _id: "$code", count: { $sum: 1 }, rateIds: { $push: "$_id" } } },
+    { $match: { count: { $gt: 1 } } },
+    { $limit: 5 }
+  ]).toArray();
+  if (duplicateShippingCodes.length) {
+    throw new Error(`Cannot create shipping_rates.code unique index; duplicate shipping rate codes exist: ${JSON.stringify(duplicateShippingCodes)}`);
+  }
   const duplicateCheckoutKeys = await c.orders.aggregate([
     { $match: { checkoutRequestId: { $type: "string" } } },
     { $group: { _id: { userId: "$userId", checkoutRequestId: "$checkoutRequestId" }, count: { $sum: 1 }, orderIds: { $push: "$_id" } } },

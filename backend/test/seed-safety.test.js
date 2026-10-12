@@ -1,6 +1,35 @@
-import test from "node:test";
+import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
-import { buildDemoData, assertSafeSeedDatabase } from "../scripts/seed.js";
+import { MongoClient, ObjectId } from "mongodb";
+import { createIndexes } from "../scripts/create-indexes.js";
+import { migrateModel } from "../scripts/migrate-model.js";
+import { buildDemoData, assertSafeSeedDatabase, seedDemo } from "../scripts/seed.js";
+
+const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
+const configuredDbPrefix = process.env.MONGODB_TEST_DB || "maison_belle_test_t5";
+if (!/^maison_belle_test_[a-z0-9_]+$/i.test(configuredDbPrefix)) {
+  throw new Error("MONGODB_TEST_DB must use a short maison_belle_test_* prefix");
+}
+const dbName = `${configuredDbPrefix}_${process.pid}_seed_safety`;
+let client;
+let db;
+let connected = false;
+
+before(async () => {
+  client = new MongoClient(mongoUri);
+  await client.connect();
+  connected = true;
+  db = client.db(dbName);
+  await db.dropDatabase();
+});
+
+after(async () => {
+  try {
+    if (connected) await client.db(dbName).dropDatabase();
+  } finally {
+    await client?.close();
+  }
+});
 
 test("demo seed rejects production-looking database names", () => {
   assert.throws(
@@ -20,4 +49,86 @@ test("demo seed records are explicitly marked", () => {
 test("demo users omit empty unique phone values", () => {
   const data = buildDemoData();
   assert.ok(data.users.every((user) => user.phone === undefined || typeof user.phone === "string"));
+});
+
+test("create-index setup preflights both unique keys before creating either index", async () => {
+  const rates = db.collection("shipping_rates");
+  const duplicateRates = [
+    { _id: new ObjectId(), code: "same-rate", regionName: "First record", isActive: true },
+    { _id: new ObjectId(), code: "same-rate", regionName: "Second record", isActive: true }
+  ];
+  await db.createCollection("users");
+  await db.createCollection("orders");
+  await rates.insertMany(duplicateRates);
+
+  await assert.rejects(createIndexes(db), (error) => {
+    assert.match(error.message, /shipping_rates\.code/i);
+    assert.match(error.message, /same-rate/);
+    for (const rate of duplicateRates) assert.ok(error.message.includes(rate._id.toHexString()));
+    return true;
+  });
+  assert.deepEqual(await rates.find({ code: "same-rate" }).sort({ regionName: 1 }).toArray(), duplicateRates);
+  assert.equal((await db.collection("users").indexes()).some((index) => index.unique && index.key.email === 1), false);
+  assert.equal((await rates.indexes()).some((index) => index.unique && index.key.code === 1), false);
+  assert.equal((await db.collection("orders").indexes()).some((index) => index.name === "userId_1_checkoutRequestId_1"), false);
+
+  await db.dropDatabase();
+  await db.createCollection("users");
+  await db.createCollection("shipping_rates");
+  const userId = new ObjectId();
+  const duplicateOrders = [
+    { _id: new ObjectId(), orderCode: "LEGACY-1", userId, checkoutRequestId: "same-checkout" },
+    { _id: new ObjectId(), orderCode: "LEGACY-2", userId, checkoutRequestId: "same-checkout" }
+  ];
+  const orders = db.collection("orders");
+  await orders.insertMany(duplicateOrders);
+
+  await assert.rejects(createIndexes(db), (error) => {
+    assert.match(error.message, /checkoutRequestId/i);
+    assert.match(error.message, /same-checkout/);
+    for (const order of duplicateOrders) assert.ok(error.message.includes(order._id.toHexString()));
+    return true;
+  });
+  assert.deepEqual(await orders.find({ userId }).sort({ orderCode: 1 }).toArray(), duplicateOrders);
+  assert.equal((await db.collection("users").indexes()).some((index) => index.unique && index.key.email === 1), false);
+  assert.equal((await rates.indexes()).some((index) => index.unique && index.key.code === 1), false);
+  assert.equal((await orders.indexes()).some((index) => index.name === "userId_1_checkoutRequestId_1"), false);
+});
+
+test("seed and additive migration are repeatable and preserve legacy addresses and order history", async () => {
+  await db.dropDatabase();
+  const userId = new ObjectId();
+  const orderId = new ObjectId();
+  const legacyAddress = {
+    _id: new ObjectId(), userId, receiverName: "Legacy Customer", receiverPhone: "0900000000",
+    fullAddress: "9 Old Street", isDefault: true, createdAt: new Date("2024-01-01T00:00:00.000Z")
+  };
+  const legacyShippingAddress = { receiverName: "Legacy Customer", receiverPhone: "0900000000", fullAddress: "9 Old Street" };
+  const legacyOrder = {
+    _id: orderId, orderCode: "LEGACY-TASK5", userId, shippingAddress: legacyShippingAddress,
+    items: [], subtotal: 321000, deliveryFee: 0, discountAmount: 0, finalAmount: 321000,
+    paymentMethod: "cod", orderStatus: "completed", createdAt: new Date("2024-01-02T00:00:00.000Z")
+  };
+  const legacyPayment = { _id: new ObjectId(), orderId, method: "cod", status: "paid", amount: 321000 };
+  const legacyHistory = { _id: new ObjectId(), orderId, oldStatus: "delivered", newStatus: "completed", note: "Legacy completion" };
+  await db.collection("user_addresses").insertOne(legacyAddress);
+  await db.collection("orders").insertOne(legacyOrder);
+  await db.collection("payments").insertOne(legacyPayment);
+  await db.collection("order_histories").insertOne(legacyHistory);
+
+  const config = { databaseName: dbName, allowDemoSeed: false };
+  await seedDemo(db, config);
+  await createIndexes(db);
+  await createIndexes(db);
+  await migrateModel(db);
+  await migrateModel(db);
+  await seedDemo(db, config);
+
+  assert.deepEqual(await db.collection("user_addresses").findOne({ _id: legacyAddress._id }), legacyAddress);
+  assert.deepEqual(await db.collection("orders").findOne({ _id: orderId }), { ...legacyOrder, district: null, ward: null });
+  assert.deepEqual(await db.collection("payments").findOne({ _id: legacyPayment._id }), legacyPayment);
+  assert.deepEqual(await db.collection("order_histories").findOne({ _id: legacyHistory._id }), legacyHistory);
+  assert.equal((await db.collection("user_addresses").findOne({ _id: legacyAddress._id })).regionCode, undefined);
+  assert.equal((await db.collection("orders").findOne({ _id: orderId })).shippingAddress.regionCode, undefined);
+  assert.equal(await db.collection("shipping_rates").countDocuments({ code: "hcm-demo" }), 1);
 });

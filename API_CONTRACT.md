@@ -209,6 +209,26 @@ Request:
 
 Response trả số tiền giảm và tổng tiền sau giảm. Việc validate không làm tăng `usedCount`; số lượt chỉ được tăng khi tạo đơn thành công.
 
+## 9A. API phí giao hàng demo
+
+```http
+GET  /api/shipping/rates
+POST /api/shipping/quote
+```
+
+Hai endpoint công khai chỉ trả các khu vực demo đang hoạt động trong MongoDB. `POST /api/shipping/quote` nhận `{ "regionCode": "hcm-demo" }` và trả `regionCode`, `regionName`, `fee`, `currency: "VND"`, `isDemo: true`. Mã không tồn tại hoặc đã ngừng hoạt động trả `409 SHIPPING_UNAVAILABLE`.
+
+Chỉ `manager` được quản lý bảng giá:
+
+```http
+GET    /api/admin/shipping-rates
+POST   /api/admin/shipping-rates
+PATCH  /api/admin/shipping-rates/:id
+DELETE /api/admin/shipping-rates/:id
+```
+
+Tạo/cập nhật nhận `regionCode`, `regionName`, `fee` và tùy chọn `isActive`. `regionCode` được chuẩn hóa chữ thường; phí là số VND không âm. `DELETE` chỉ đặt `isActive: false`, không xóa bản ghi. Không có phí mặc định cho khu vực chưa cấu hình hoặc đã ngừng hoạt động.
+
 ## 10. API đơn hàng
 
 ### POST `/api/orders`
@@ -219,30 +239,37 @@ Request:
 
 ```json
 {
+  "checkoutRequestId": "checkout-2026-001",
   "items": [
     { "variantId": "66b000000000000000000001", "quantity": 2 }
   ],
   "voucherCode": "BELLE10",
   "paymentMethod": "cod",
-  "deliveryFee": 30000,
   "shippingAddress": {
     "receiverName": "Nguyễn Văn A",
     "receiverPhone": "0900000000",
-    "fullAddress": "1 Đường Demo, Quận 1"
+    "fullAddress": "1 Đường Demo, Quận 1",
+    "regionCode": "hcm-demo"
   }
 }
 ```
 
-`paymentMethod` nhận `cod` hoặc `mock`.
+`checkoutRequestId` là khóa tùy chọn để gửi lại cùng một yêu cầu an toàn; nếu có, đây phải là chuỗi không rỗng, tối đa 128 ký tự và được áp dụng theo từng tài khoản. Gửi lại khóa của đơn đã tạo hoàn tất sẽ trả lại đơn đó, không giữ thêm tồn kho hoặc dùng thêm voucher. Nếu lần gửi trước vẫn đang xử lý, API trả `409 CHECKOUT_IN_PROGRESS`; hãy thử lại với cùng khóa.
+
+`shippingAddress.regionCode` bắt buộc cho đơn mới và phải trỏ tới khu vực đang hoạt động. Tên khu vực và phí lấy từ MongoDB; phí hoặc tên gửi thêm từ trình duyệt không được dùng để tính đơn. Khu vực không tồn tại hoặc đã ngừng hoạt động trả `409 SHIPPING_UNAVAILABLE`, không tự chuyển thành giao hàng miễn phí.
+
+`paymentMethod` nhận `cod` hoặc `mock`. Máy chủ tính lại giá/khuyến mãi, tồn kho, voucher và phí giao hàng. `subtotal` là tổng các dòng hàng theo giá hiệu lực; `finalAmount = subtotal - discountAmount + deliveryFee`. Demo này không tính thêm khoản thuế. Order lưu snapshot sản phẩm, voucher, địa chỉ và `shippingRateSnapshot` gồm mã/tên khu vực, phí VND và cờ demo. Payment và invoice bắt đầu ở trạng thái chờ; đây là các bản ghi demo, không thu tiền thật.
 
 Khi tạo đơn, backend sẽ:
 
-1. Kiểm tra sản phẩm, biến thể và số lượng.
-2. Kiểm tra tồn kho khả dụng.
-3. Giữ chỗ tồn kho bằng cập nhật nguyên tử.
-4. Kiểm tra voucher.
-5. Lưu snapshot tên, SKU, giá, voucher và địa chỉ nhận hàng.
-6. Tạo payment mock và invoice mock.
+1. Kiểm tra sản phẩm/biến thể đang hoạt động và tính giá từ dữ liệu MongoDB.
+2. Kiểm tra khu vực giao hàng đang hoạt động và lấy phí từ MongoDB.
+3. Kiểm tra tồn khả dụng và giữ chỗ bằng cập nhật nguyên tử.
+4. Tính voucher trên subtotal; chỉ tăng lượt dùng khi tạo đơn thành công.
+5. Lưu snapshot giá, voucher, địa chỉ và phí giao hàng.
+6. Tạo payment/invoice demo với số tiền bằng `finalAmount`.
+
+Địa chỉ đã lưu dạng văn bản tự do và đơn hàng cũ vẫn đọc được. `regionCode` trên API địa chỉ đã lưu là tùy chọn; migration không tự điền mã vùng cho địa chỉ hay đơn lịch sử.
 
 ### GET `/api/orders`
 
@@ -275,7 +302,7 @@ Customer chỉ được hủy đơn ở trạng thái `pending`. Nhân viên ph�
 
 ### POST `/api/orders/:id/payment`
 
-Cần đăng nhập. Chỉ chấp nhận đơn dùng `paymentMethod: "mock"`; request `{ "outcome": "success" | "failure" }`. Đây là thao tác mô phỏng, không thu tiền thật. Chi tiết đơn trả thêm `payment`, `invoice` và `history`; thanh toán thành công phát hành hóa đơn mô phỏng.
+Cần đăng nhập. Chỉ chấp nhận đơn dùng `paymentMethod: "mock"`; request `{ "outcome": "success" | "failure" }`. Đây là thao tác mô phỏng, không thu tiền thật. Payment ghi số tiền snapshot của đơn; kết quả thành công đánh dấu payment đã trả và invoice đã phát hành, kết quả thất bại giữ invoice ở trạng thái chờ. COD không dùng endpoint này: trạng thái thanh toán vẫn chờ trong lúc giao và được đánh dấu đã trả khi đơn hoàn tất. Chi tiết đơn trả thêm `payment`, `invoice` và `history`.
 
 ## 11. API lịch tư vấn
 
@@ -419,7 +446,7 @@ POST /api/admin/deliveries
 PATCH /api/admin/deliveries/:id
 ```
 
-POST nhận `orderId`, `storeId`, `deliveryAddress`; chỉ đơn đã `shipped` mới được tạo phiếu và mỗi đơn chỉ có một phiếu. Giao hàng là mô phỏng, tạo trạng thái `ready`, theo luồng `ready -> assigned -> picked_up -> in_transit -> delivered|failed`. Khi giao thành công, đơn đang `shipped` chuyển sang `delivered`.
+Các endpoint yêu cầu vai trò `sales`, `warehouse` hoặc `manager`. POST nhận `orderId`, `storeId`, `deliveryAddress`; chỉ đơn đã `shipped` mới được tạo phiếu và mỗi đơn chỉ có một phiếu. Phiếu giao hàng là mô phỏng, bắt đầu ở `ready` và lưu lịch sử chuyển trạng thái: `ready -> assigned -> picked_up -> in_transit -> delivered|failed`. Khi giao thành công, đơn đang `shipped` chuyển sang `delivered` và thêm một bản ghi lịch sử đơn; gửi lại trạng thái `delivered` không áp dụng chuyển đổi lần hai.
 
 ## 16. API đổi trả
 
@@ -431,7 +458,7 @@ POST  /api/admin/returns
 PATCH /api/admin/returns/:id
 ```
 
-Khách chỉ được gửi yêu cầu cho đơn của mình ở trạng thái `delivered` hoặc `completed`; số lượng cộng dồn không vượt quá số đã mua. Trạng thái ban đầu là `requested`.
+Yêu cầu cần đăng nhập; `sales` và `manager` có thể xử lý. Khách chỉ được gửi yêu cầu cho đơn của mình ở trạng thái `delivered` hoặc `completed`; số lượng cộng dồn không vượt quá số đã mua. Trạng thái ban đầu là `requested` và bản ghi lưu lịch sử trạng thái. Duyệt yêu cầu chưa làm tăng tồn kho; khi nhận hàng trả (`received`), hệ thống cộng lại tồn và ghi inventory log một lần cho từng dòng. Gửi lại trạng thái `received` không cộng tồn lần nữa.
 
 Luồng:
 
