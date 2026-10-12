@@ -5,6 +5,15 @@ import { collections } from "../src/collections.js";
 export async function createIndexes(db) {
   const c = collections(db);
   const created = [];
+  const duplicateCheckoutKeys = await c.orders.aggregate([
+    { $match: { checkoutRequestId: { $type: "string" } } },
+    { $group: { _id: { userId: "$userId", checkoutRequestId: "$checkoutRequestId" }, count: { $sum: 1 }, orderIds: { $push: "$_id" } } },
+    { $match: { count: { $gt: 1 } } },
+    { $limit: 5 }
+  ]).toArray();
+  if (duplicateCheckoutKeys.length) {
+    throw new Error(`Cannot create checkoutRequestId unique index; duplicate checkout request IDs exist: ${JSON.stringify(duplicateCheckoutKeys)}`);
+  }
   const add = async (collection, spec, options = {}) => {
     created.push(`${collection.collectionName}.${await collection.createIndex(spec, options)}`);
   };
@@ -31,6 +40,7 @@ export async function createIndexes(db) {
   await add(c.orders, { orderCode: 1 }, { unique: true });
   await add(c.orders, { userId: 1, createdAt: -1 });
   await add(c.orders, { orderStatus: 1, createdAt: -1 });
+  await add(c.orders, { userId: 1, checkoutRequestId: 1 }, { unique: true, partialFilterExpression: { checkoutRequestId: { $type: "string" } } });
   await add(c.vouchers, { code: 1 }, { unique: true });
   await add(c.vouchers, { isActive: 1, startDate: 1, endDate: 1 });
   await add(c.payments, { orderId: 1 }, { unique: true });

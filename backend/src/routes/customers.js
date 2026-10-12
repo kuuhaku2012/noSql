@@ -13,7 +13,9 @@ function cleanAddress(input, partial = false) {
   const schema = {
     receiverName: { required: !partial, type: "string", maxLength: 120 },
     receiverPhone: { required: !partial, type: "string", maxLength: 30 },
-    fullAddress: { required: !partial, type: "string", maxLength: 500 }
+    fullAddress: { required: !partial, type: "string", maxLength: 500 },
+    regionCode: { required: false, type: "string", maxLength: 64 },
+    regionName: { required: false, type: "string", maxLength: 120 }
   };
   validateBody(schema, input);
   const result = {};
@@ -21,6 +23,10 @@ function cleanAddress(input, partial = false) {
     if (input[field] !== undefined) result[field] = input[field].trim();
   }
   if (Object.values(result).some((value) => value === "")) throw new HttpError(400, "VALIDATION_ERROR", "Address fields cannot be empty");
+  if (result.regionCode !== undefined) {
+    result.regionCode = result.regionCode.toLowerCase();
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(result.regionCode)) throw new HttpError(400, "VALIDATION_ERROR", "regionCode is invalid");
+  }
   if (input.isDefault !== undefined) {
     if (typeof input.isDefault !== "boolean") throw new HttpError(400, "VALIDATION_ERROR", "isDefault must be boolean");
     result.isDefault = input.isDefault;

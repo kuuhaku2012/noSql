@@ -34,7 +34,8 @@
   <div class="modal" id="pay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="pay-title" tabindex="-1"><form class="sheet" id="pay-form">
     <h3 id="pay-title">Xác nhận thông tin giao hàng</h3><p>Đơn chỉ được ghi nhận khi máy chủ phản hồi thành công.</p>
     <label class="field">Họ và tên<input required name="name" autocomplete="name"></label><label class="field">Số điện thoại<input required name="phone" inputmode="tel" autocomplete="tel"></label>
-    <label class="field">Địa chỉ nhận hàng<textarea required name="addr" rows="3" autocomplete="street-address"></textarea></label><label class="field">Tỉnh / thành phố<input required name="city" autocomplete="address-level1"></label>
+    <label class="field">Địa chỉ nhận hàng<textarea required name="addr" rows="3" autocomplete="street-address"></textarea></label><label class="field">Tỉnh / thành phố<select required name="regionCode" autocomplete="address-level1"><option value="">Chọn tỉnh / thành phố</option></select></label>
+    <p id="shipping-quote" class="service" role="status" aria-live="polite">Chọn tỉnh / thành phố để xem phí giao hàng.</p>
     <label class="field">Thanh toán<select name="paymentMethod"><option value="cod">Thanh toán khi nhận hàng</option><option value="mock">Thanh toán mô phỏng</option></select></label>
     <button class="btn" type="submit">GỬI ĐƠN HÀNG</button><button class="outline" type="button" data-close style="margin-top:8px">QUAY LẠI</button>
   </form></div>

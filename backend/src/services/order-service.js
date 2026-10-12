@@ -42,10 +42,41 @@ async function releaseReservations(db, reservations) {
 }
 
 export async function createOrder({ db, user, body }) {
+  let checkoutRequestId;
+  if (body.checkoutRequestId !== undefined) {
+    if (typeof body.checkoutRequestId !== "string" || !body.checkoutRequestId.trim() || body.checkoutRequestId.length > 128) {
+      throw new HttpError(400, "VALIDATION_ERROR", "checkoutRequestId must be a non-empty string of at most 128 characters");
+    }
+    checkoutRequestId = body.checkoutRequestId.trim();
+    const existing = await db.collection("orders").findOne({ userId: user._id, checkoutRequestId });
+    if (existing) return existing;
+  }
   if (!Array.isArray(body.items) || !body.items.length) throw new HttpError(400, "VALIDATION_ERROR", "At least one order item is required");
   validateBody({ paymentMethod: { required: true, type: "string" } }, body);
   if (!["cod", "mock"].includes(body.paymentMethod)) throw new HttpError(400, "VALIDATION_ERROR", "paymentMethod must be cod or mock");
-  if (!body.shippingAddress || typeof body.shippingAddress !== "object") throw new HttpError(400, "VALIDATION_ERROR", "shippingAddress is required");
+  if (!body.shippingAddress || typeof body.shippingAddress !== "object" || Array.isArray(body.shippingAddress)) throw new HttpError(400, "VALIDATION_ERROR", "shippingAddress is required");
+  validateBody({
+    receiverName: { required: true, type: "string", maxLength: 120 },
+    receiverPhone: { required: true, type: "string", maxLength: 30 },
+    fullAddress: { required: true, type: "string", maxLength: 500 },
+    regionCode: { required: true, type: "string", maxLength: 64 }
+  }, body.shippingAddress);
+  const regionCode = body.shippingAddress.regionCode.trim().toLowerCase();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(regionCode)) throw new HttpError(400, "VALIDATION_ERROR", "regionCode is invalid");
+  const rate = await db.collection("shipping_rates").findOne({ code: regionCode, isActive: true });
+  if (!rate) throw new HttpError(409, "SHIPPING_UNAVAILABLE", "This delivery region is not supported");
+  const deliveryFee = Number(rate.fee);
+  if (!Number.isFinite(deliveryFee) || deliveryFee < 0 || typeof rate.regionName !== "string" || !rate.regionName.trim()) {
+    throw new HttpError(409, "SHIPPING_UNAVAILABLE", "This delivery region is not configured correctly");
+  }
+  const shippingAddress = {
+    receiverName: body.shippingAddress.receiverName.trim(),
+    receiverPhone: body.shippingAddress.receiverPhone.trim(),
+    fullAddress: body.shippingAddress.fullAddress.trim(),
+    regionCode: rate.code,
+    regionName: rate.regionName
+  };
+  if (Object.values(shippingAddress).some((value) => !value)) throw new HttpError(400, "VALIDATION_ERROR", "Shipping address fields cannot be empty");
 
   const variantRefs = body.items.map((item) => {
     validateBody({ variantId: { required: true }, quantity: { required: true, type: "positiveInteger" } }, item);
@@ -72,8 +103,6 @@ export async function createOrder({ db, user, body }) {
     items.push({ productId: product._id, variantId: variant._id, sku: variant.sku, productName: product.name, quantity: requested.quantity, retailPrice: Number(variant.retailPrice), unitPrice, lineTotal: unitPrice * requested.quantity, lineDiscount: (Number(variant.retailPrice) - unitPrice) * requested.quantity, appliedPromotion: promotion ? { promotionId: promotion.id, name: promotion.name, unitPrice } : null });
   }
   const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
-  const deliveryFee = Number(body.deliveryFee || 0);
-  if (!Number.isFinite(deliveryFee) || deliveryFee < 0) throw new HttpError(400, "VALIDATION_ERROR", "deliveryFee must be non-negative");
   let voucherSnapshot = null;
   let voucherId = null;
   let voucherConsumed = false;
@@ -88,6 +117,7 @@ export async function createOrder({ db, user, body }) {
   if (!store) throw new HttpError(409, "STORE_UNAVAILABLE", "No active store is available");
   const reservations = [];
   let insertedOrderId = null;
+  let orderInsertDuplicate = false;
   try {
     for (const item of items) {
       const result = await db.collection("inventories").findOneAndUpdate(
@@ -107,24 +137,60 @@ export async function createOrder({ db, user, body }) {
       voucherConsumed = true;
     }
     const now = new Date();
-    const order = { _id: new ObjectId(), orderCode: `MB-${Date.now()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, userId: user._id, storeId: store._id, customerName: body.shippingAddress.receiverName, phoneNumber: body.shippingAddress.receiverPhone, shippingAddress: { ...body.shippingAddress }, items, subtotal, deliveryFee, discountAmount: voucherSnapshot?.discountAmount || 0, finalAmount: subtotal + deliveryFee - (voucherSnapshot?.discountAmount || 0), appliedVoucher: voucherSnapshot, paymentMethod: body.paymentMethod, paymentStatus: "pending", orderStatus: "pending", reservationReleased: false, stockCommitted: false, createdAt: now, updatedAt: now };
-    await db.collection("orders").insertOne(order);
+    const order = {
+      _id: new ObjectId(),
+      orderCode: `MB-${Date.now()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      userId: user._id,
+      ...(checkoutRequestId ? { checkoutRequestId } : {}),
+      storeId: store._id,
+      customerName: shippingAddress.receiverName,
+      phoneNumber: shippingAddress.receiverPhone,
+      shippingAddress,
+      shippingRateSnapshot: { regionCode: rate.code, regionName: rate.regionName, fee: deliveryFee, currency: "VND", isDemo: true },
+      items,
+      subtotal,
+      deliveryFee,
+      discountAmount: voucherSnapshot?.discountAmount || 0,
+      finalAmount: subtotal + deliveryFee - (voucherSnapshot?.discountAmount || 0),
+      appliedVoucher: voucherSnapshot,
+      paymentMethod: body.paymentMethod,
+      paymentStatus: "pending",
+      orderStatus: "pending",
+      reservationReleased: false,
+      stockCommitted: false,
+      createdAt: now,
+      updatedAt: now
+    };
     insertedOrderId = order._id;
+    try { await db.collection("orders").insertOne(order); }
+    catch (error) {
+      orderInsertDuplicate = error.code === 11000;
+      throw error;
+    }
     await db.collection("order_histories").insertOne({ orderId: order._id, oldStatus: null, newStatus: "pending", note: "Order created", createdByUserId: user._id, createdAt: now });
     await db.collection("payments").insertOne({ orderId: order._id, method: body.paymentMethod, status: "pending", amount: order.finalAmount, isMock: true, createdAt: now });
     await db.collection("invoices").insertOne({ orderId: order._id, invoiceCode: `INV-${order.orderCode}`, status: "pending", amount: order.finalAmount, createdAt: now });
     return order;
   } catch (error) {
-    try {
-      await releaseReservations(db, reservations);
-    } finally {
-      if (voucherConsumed) await db.collection("vouchers").updateOne({ _id: voucherId, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } });
-      if (insertedOrderId) {
-        await db.collection("invoices").deleteMany({ orderId: insertedOrderId });
-        await db.collection("payments").deleteMany({ orderId: insertedOrderId });
-        await db.collection("order_histories").deleteMany({ orderId: insertedOrderId });
-        await db.collection("orders").deleteOne({ _id: insertedOrderId });
-      }
+    const compensationErrors = [];
+    const compensate = async (operation) => {
+      try { await operation(); }
+      catch (compensationError) { compensationErrors.push(compensationError); }
+    };
+    await compensate(() => releaseReservations(db, reservations));
+    if (voucherConsumed) {
+      await compensate(() => db.collection("vouchers").updateOne({ _id: voucherId, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } }));
+    }
+    if (insertedOrderId) {
+      await compensate(() => db.collection("invoices").deleteMany({ orderId: insertedOrderId }));
+      await compensate(() => db.collection("payments").deleteMany({ orderId: insertedOrderId }));
+      await compensate(() => db.collection("order_histories").deleteMany({ orderId: insertedOrderId }));
+      await compensate(() => db.collection("orders").deleteOne({ _id: insertedOrderId }));
+    }
+    if (compensationErrors.length) throw new AggregateError([error, ...compensationErrors], "Checkout failed and compensation was incomplete");
+    if (orderInsertDuplicate && checkoutRequestId) {
+      const winner = await db.collection("orders").findOne({ userId: user._id, checkoutRequestId });
+      if (winner) return winner;
     }
     throw error;
   }

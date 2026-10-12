@@ -282,6 +282,31 @@
     let currentItems = [];
     let discount = 0;
     const resumeCheckout = new URLSearchParams(location.search).get("checkout") === "1";
+    const checkoutRequestStorageKey = "mb-checkout-request";
+    let checkoutRequest = null;
+    let activeShippingQuote = null;
+    let shippingQuoteSequence = 0;
+    let shippingRatesLoaded = false;
+    const regionSelect = $("#pay-form [name=regionCode]");
+    const shippingQuoteNote = $("#shipping-quote");
+    const checkoutSubmit = $("#pay-form [type=submit]");
+    checkoutSubmit.disabled = true;
+    const clearCheckoutRequest = () => {
+      checkoutRequest = null;
+      try { globalThis.sessionStorage?.removeItem(checkoutRequestStorageKey); } catch {}
+    };
+    const checkoutRequestIdFor = (payload) => {
+      const signature = JSON.stringify(payload);
+      try {
+        const stored = JSON.parse(globalThis.sessionStorage?.getItem(checkoutRequestStorageKey) || "null");
+        if (stored?.signature === signature && stored.id) return stored.id;
+      } catch {}
+      if (checkoutRequest?.signature === signature) return checkoutRequest.id;
+      const id = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      checkoutRequest = { signature, id };
+      try { globalThis.sessionStorage?.setItem(checkoutRequestStorageKey, JSON.stringify(checkoutRequest)); } catch {}
+      return id;
+    };
     const totals = () => {
       const subtotal = currentItems.filter((item) => item.available).reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
       $("#sub").textContent = MB.money(subtotal);
@@ -333,11 +358,48 @@
         MB.toast("Mã ưu đãi đã được máy chủ xác nhận.", "success");
       } catch (error) { $("#applied-voucher").textContent = MB.errorMessage(error); discount = 0; totals(); }
     });
-    const openCheckout = () => {
+    const loadShippingRates = async () => {
+      if (shippingRatesLoaded) return;
+      shippingQuoteNote.textContent = "Đang tải khu vực giao hàng…";
+      const rates = listData(await MBApi.shipping.rates());
+      regionSelect.innerHTML = `<option value="">Chọn tỉnh / thành phố</option>${rates.map((rate) => `<option value="${esc(rate.regionCode)}">${esc(rate.regionName)}${rate.isDemo ? " · DỮ LIỆU MINH HỌA" : ""}</option>`).join("")}`;
+      shippingRatesLoaded = true;
+      shippingQuoteNote.textContent = rates.length ? "Chọn tỉnh / thành phố để xem phí giao hàng." : "Chưa có khu vực giao hàng khả dụng.";
+    };
+    const updateShippingQuote = async () => {
+      const regionCode = regionSelect.value;
+      const sequence = ++shippingQuoteSequence;
+      activeShippingQuote = null;
+      checkoutSubmit.disabled = true;
+      if (!regionCode) {
+        shippingQuoteNote.textContent = "Chọn tỉnh / thành phố để xem phí giao hàng.";
+        return;
+      }
+      shippingQuoteNote.textContent = "Đang xác nhận phí giao hàng…";
+      try {
+        const quote = responseData(await MBApi.shipping.quote({ regionCode })) || {};
+        if (sequence !== shippingQuoteSequence || regionCode !== regionSelect.value) return;
+        const fee = Number(quote.fee);
+        if (quote.regionCode !== regionCode || !Number.isFinite(fee) || fee < 0) throw new Error("Máy chủ trả về báo giá giao hàng không hợp lệ.");
+        activeShippingQuote = quote;
+        shippingQuoteNote.textContent = `Phí giao hàng: ${MB.money(fee)}${quote.isDemo ? " · DỮ LIỆU MINH HỌA" : ""}`;
+        checkoutSubmit.disabled = false;
+      } catch (error) {
+        if (sequence !== shippingQuoteSequence) return;
+        shippingQuoteNote.textContent = MB.errorMessage(error);
+      }
+    };
+    regionSelect?.addEventListener("change", updateShippingQuote);
+    const openCheckout = async () => {
       MB.modalReturnFocus = $("#checkout");
       $("#pay").classList.add("open");
       $("#pay").setAttribute("aria-hidden", "false");
       requestAnimationFrame(() => $("#pay-form input:not([type=hidden])")?.focus());
+      try {
+        await loadShippingRates();
+        if (regionSelect.value) await updateShippingQuote();
+      }
+      catch (error) { shippingQuoteNote.textContent = MB.errorMessage(error); throw error; }
     };
     $("#checkout")?.addEventListener("click", async () => {
       if (!currentItems.length) { MB.toast("Giỏ hàng đang trống."); return; }
@@ -345,7 +407,7 @@
       button.disabled = true;
       try {
         await MBApi.auth.me();
-        openCheckout();
+        await openCheckout();
       } catch (error) {
         if (error.status === 401) location.assign("account.html?next=checkout");
         else MB.toast(MB.errorMessage(error), "error");
@@ -356,15 +418,22 @@
       const form = event.currentTarget;
       const values = Object.fromEntries(new FormData(form).entries());
       const submit = form.querySelector("[type=submit]");
+      if (!activeShippingQuote || activeShippingQuote.regionCode !== values.regionCode) {
+        MB.toast("Hãy chọn khu vực và chờ máy chủ xác nhận phí giao hàng.", "error");
+        return;
+      }
       submit.disabled = true;
       try {
-        const result = responseData(await MBApi.orders.create({
+        const voucherCode = $("#promo [name=code]")?.value.trim().toUpperCase() || "";
+        const payload = {
           items: currentItems.map(({ variantId, quantity }) => ({ variantId, quantity })),
           paymentMethod: values.paymentMethod,
-          deliveryFee: 0,
-          shippingAddress: { receiverName: values.name.trim(), receiverPhone: values.phone.trim(), fullAddress: `${values.addr.trim()}, ${values.city.trim()}` },
-          voucherCode: $("#promo [name=code]")?.value.trim().toUpperCase() || ""
-        }));
+          shippingAddress: { receiverName: values.name.trim(), receiverPhone: values.phone.trim(), fullAddress: values.addr.trim(), regionCode: values.regionCode }
+        };
+        if (voucherCode) payload.voucherCode = voucherCode;
+        payload.checkoutRequestId = checkoutRequestIdFor(payload);
+        const result = responseData(await MBApi.orders.create(payload));
+        clearCheckoutRequest();
         let cartClearWarning = "";
         try { await MB.updateCart([]); }
         catch { cartClearWarning = " Đơn đã tạo nhưng giỏ hàng chưa được đồng bộ; vui lòng kiểm tra đơn trước khi đặt thêm."; }
@@ -381,14 +450,14 @@
         if (error.status === 401) location.assign("account.html?next=checkout");
         else MB.toast(MB.errorMessage(error), "error");
       }
-      finally { submit.disabled = false; }
+      finally { submit.disabled = !activeShippingQuote || activeShippingQuote.regionCode !== regionSelect.value; }
     });
     document.body.addEventListener("click", (event) => { if (event.target.closest("[data-retry]")) load(); });
     await load();
     if (resumeCheckout && currentItems.length) {
       try {
         await MBApi.auth.me();
-        openCheckout();
+        await openCheckout();
       } catch (error) {
         if (error.status === 401) location.assign("account.html?next=checkout");
         else MB.toast(MB.errorMessage(error), "error");

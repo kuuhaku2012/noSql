@@ -79,6 +79,10 @@
         get: () => get("/api/cart"),
         update: (body) => send("PUT", "/api/cart", body)
       },
+      shipping: {
+        rates: () => get("/api/shipping/rates"),
+        quote: (body) => send("POST", "/api/shipping/quote", body)
+      },
       validateVoucher: (body) => send("POST", "/api/vouchers/validate", body),
       orders: {
         create: (body) => send("POST", "/api/orders", body),

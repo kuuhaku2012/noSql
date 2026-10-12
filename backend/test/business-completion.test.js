@@ -31,7 +31,7 @@ async function login(email) {
 async function createOrder({ quantity = 1, paymentMethod = "cod", store = storeId } = {}) {
   return customerAgent.post("/api/orders").send({
     items: [{ variantId: variantId.toHexString(), quantity }], paymentMethod, storeId: store.toHexString(),
-    shippingAddress: { receiverName: "Customer", receiverPhone: "0900000000", fullAddress: "1 Test Street" }
+    shippingAddress: { receiverName: "Customer", receiverPhone: "0900000000", fullAddress: "1 Test Street", regionCode: "hcm-demo" }
   });
 }
 
@@ -73,6 +73,7 @@ before(async () => {
   await db.collection("brands").insertOne({ _id: brandId, name: "Maison Test", code: "MBT", slug: "maison-test", isActive: true });
   await db.collection("stores").insertOne({ _id: storeId, name: "Test Store", address: "1 Test Street", isActive: true });
   await db.collection("stores").insertOne({ _id: otherStoreId, name: "Other Test Store", address: "2 Test Street", isActive: true });
+  await db.collection("shipping_rates").insertOne({ _id: new ObjectId(), code: "hcm-demo", regionName: "Hồ Chí Minh (demo)", fee: 25000, currency: "VND", isDemo: true, isActive: true });
   await db.collection("products").insertOne({ _id: productId, name: "Test Serum", slug: "test-serum", brandId, categoryId, isActive: true });
   await db.collection("products").insertOne({ _id: otherProductId, name: "Test Tint", slug: "test-tint", brandId, categoryId: otherCategoryId, isActive: true });
   await db.collection("product_variants").insertOne({ _id: variantId, productId, sku: "TEST-SERUM-30", retailPrice: 100000, originalPrice: 120000, isActive: true });
@@ -153,16 +154,30 @@ test("appointments reject invalid time ranges and duplicate active bookings", as
   assert.equal(duplicate.body.error.code, "APPOINTMENT_SLOT_UNAVAILABLE");
 });
 
-test("customer can update a safe profile and addresses remain private", async () => {
+test("customer addresses accept structured regions and legacy addresses remain readable", async () => {
+  const customer = await db.collection("users").findOne({ email: "customer-completion@test.local" });
   const updated = await customerAgent.patch("/api/customers/me").send({ fullName: "Updated Customer", phone: "0900000001", skinType: "sensitive", role: "manager" });
   assert.equal(updated.status, 200);
   assert.equal(updated.body.data.fullName, "Updated Customer");
   assert.equal(updated.body.data.role, "customer");
 
-  const created = await customerAgent.post("/api/customers/me/addresses").send({ receiverName: "Updated Customer", receiverPhone: "0900000001", fullAddress: "2 Test Street", isDefault: true });
+  const created = await customerAgent.post("/api/customers/me/addresses").send({ receiverName: "Updated Customer", receiverPhone: "0900000001", fullAddress: "2 Test Street", regionCode: "hcm-demo", regionName: "Hồ Chí Minh (demo)", isDefault: true });
   assert.equal(created.status, 201);
+  assert.equal(created.body.data.regionCode, "hcm-demo");
+  assert.equal(created.body.data.regionName, "Hồ Chí Minh (demo)");
+  const legacyAddressId = new ObjectId();
+  await db.collection("user_addresses").insertOne({ _id: legacyAddressId, userId: customer._id, receiverName: "Legacy Customer", receiverPhone: "0900000002", fullAddress: "Old free-form address", isDefault: false, createdAt: new Date(), updatedAt: new Date() });
   const ownAddresses = await customerAgent.get("/api/customers/me/addresses");
-  assert.equal(ownAddresses.body.data.length, 1);
+  assert.equal(ownAddresses.body.data.length, 2);
+  const legacyAddress = ownAddresses.body.data.find((address) => address.id === legacyAddressId.toHexString());
+  assert.equal(legacyAddress.fullAddress, "Old free-form address");
+  assert.equal(legacyAddress.regionCode, undefined);
+  const partial = await customerAgent.patch(`/api/customers/me/addresses/${legacyAddressId}`).send({ receiverPhone: "0900000003" });
+  assert.equal(partial.status, 200);
+  assert.equal(partial.body.data.fullAddress, "Old free-form address");
+  assert.equal(partial.body.data.regionCode, undefined);
+  const invalidRegion = await customerAgent.post("/api/customers/me/addresses").send({ receiverName: "Invalid Region", receiverPhone: "0900000004", fullAddress: "3 Test Street", regionCode: "hcm demo" });
+  assert.equal(invalidRegion.status, 400);
   const otherAddresses = await otherCustomerAgent.get("/api/customers/me/addresses");
   assert.equal(otherAddresses.status, 200);
   assert.equal(otherAddresses.body.data.length, 0);
@@ -171,7 +186,7 @@ test("customer can update a safe profile and addresses remain private", async ()
 test("completed orders award loyalty points once and order detail includes invoice/payment/history", async () => {
   const created = await customerAgent.post("/api/orders").send({
     items: [{ variantId: variantId.toHexString(), quantity: 1 }], paymentMethod: "cod",
-    shippingAddress: { receiverName: "Customer", receiverPhone: "0900000000", fullAddress: "1 Test Street" }
+    shippingAddress: { receiverName: "Customer", receiverPhone: "0900000000", fullAddress: "1 Test Street", regionCode: "hcm-demo" }
   });
   assert.equal(created.status, 201);
   const id = created.body.data.id;
@@ -196,7 +211,7 @@ test("completed orders award loyalty points once and order detail includes invoi
 test("mock payment failure and retry update one payment and invoice record", async () => {
   const created = await customerAgent.post("/api/orders").send({
     items: [{ variantId: variantId.toHexString(), quantity: 1 }], paymentMethod: "mock",
-    shippingAddress: { receiverName: "Customer", receiverPhone: "0900000000", fullAddress: "1 Test Street" }
+    shippingAddress: { receiverName: "Customer", receiverPhone: "0900000000", fullAddress: "1 Test Street", regionCode: "hcm-demo" }
   });
   assert.equal(created.status, 201);
   const id = created.body.data.id;

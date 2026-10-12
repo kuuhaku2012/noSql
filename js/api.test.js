@@ -150,3 +150,19 @@ test("offers and admin flash-sale methods use the live API resources", async () 
     ["/api/admin/flash-sales/flash-1", "DELETE", undefined]
   ]);
 });
+
+test("shipping rates and quotes use the public checkout endpoints", async () => {
+  const requests = [];
+  const api = createApi(async (url, options) => {
+    requests.push([url, options.method || "GET", options.body ? JSON.parse(options.body) : undefined]);
+    return Response.json({ data: [] });
+  });
+
+  await api.shipping.rates();
+  await api.shipping.quote({ regionCode: "hcm-demo" });
+
+  assert.deepEqual(requests, [
+    ["/api/shipping/rates", "GET", undefined],
+    ["/api/shipping/quote", "POST", { regionCode: "hcm-demo" }]
+  ]);
+});
