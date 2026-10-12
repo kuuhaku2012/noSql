@@ -9,8 +9,13 @@ import { createIndexes } from "../scripts/create-indexes.js";
 import { seedDemo } from "../scripts/seed.js";
 
 const mongoUri = "mongodb://127.0.0.1:27017";
-const dbName = "maison_belle_test_shipping_rates";
-const seedDbName = "maison_belle_test_shipping_rates_seed";
+const configuredDbPrefix = process.env.MONGODB_TEST_DB || "maison_belle_test";
+if (!/^maison_belle_test(?:_|$)/.test(configuredDbPrefix)) {
+  throw new Error("MONGODB_TEST_DB must use the maison_belle_test_ prefix");
+}
+const testDbPrefix = `${configuredDbPrefix}_${process.pid}`;
+const dbName = `${testDbPrefix}_shipping_rates`;
+const seedDbName = `${testDbPrefix}_shipping_rates_seed`;
 let client;
 let db;
 let app;
@@ -62,6 +67,14 @@ after(async () => {
   }
 });
 
+test("shipping-rate test databases use the configured prefix and isolate each process", () => {
+  assert.equal(dbName, `${testDbPrefix}_shipping_rates`);
+  assert.equal(seedDbName, `${testDbPrefix}_shipping_rates_seed`);
+  assert.equal(testDbPrefix, `${configuredDbPrefix}_${process.pid}`);
+  assert.match(dbName, /^maison_belle_test_/);
+  assert.match(seedDbName, /^maison_belle_test_/);
+});
+
 test("collections exposes the shipping_rates collection", () => {
   assert.equal(collections(db).shippingRates.collectionName, "shipping_rates");
 });
@@ -105,6 +118,10 @@ test("manager can list, create, update, and soft-deactivate shipping rates", asy
   assert.equal(created.body.data.currency, "VND");
   assert.equal(created.body.data.isDemo, true);
 
+  const renamed = await managerAgent.patch(`/api/admin/shipping-rates/${created.body.data.id}`).send({ regionCode: "da-nang-city-demo" });
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.body.data.regionCode, "da-nang-city-demo");
+
   const updated = await managerAgent.patch(`/api/admin/shipping-rates/${created.body.data.id}`).send({ fee: 22000, isActive: false });
   assert.equal(updated.status, 200);
   assert.equal(updated.body.data.fee, 22000);
@@ -113,7 +130,7 @@ test("manager can list, create, update, and soft-deactivate shipping rates", asy
   const deactivated = await managerAgent.delete(`/api/admin/shipping-rates/${created.body.data.id}`);
   assert.equal(deactivated.status, 200);
   assert.equal(deactivated.body.data.isActive, false);
-  assert.ok(await db.collection("shipping_rates").findOne({ code: "da-nang-demo" }));
+  assert.ok(await db.collection("shipping_rates").findOne({ code: "da-nang-city-demo" }));
 });
 
 test("shipping-rate reads are manager-only", async () => {
@@ -167,4 +184,24 @@ test("rerunning demo seed preserves manager-edited shipping rates", async () => 
   assert.equal(saved.fee, 42000);
   assert.equal(saved.isActive, false);
   assert.equal(await seedDb.collection("shipping_rates").countDocuments({ code: "hcm-demo" }), 1);
+});
+
+test("seeded shipping-rate codes cannot be renamed and seed reruns keep deactivation", async () => {
+  const config = { databaseName: dbName, allowDemoSeed: false };
+  const hcm = await db.collection("shipping_rates").findOne({ code: "hcm-demo" });
+  const renamed = await managerAgent.patch(`/api/admin/shipping-rates/${hcm._id}`).send({
+    regionCode: "hcm-city-demo"
+  });
+  assert.equal(renamed.status, 400);
+
+  const deactivated = await managerAgent.delete(`/api/admin/shipping-rates/${hcm._id}`);
+  assert.equal(deactivated.status, 200);
+
+  await seedDemo(db, config);
+
+  const rates = db.collection("shipping_rates");
+  assert.equal(await rates.countDocuments({ code: "hcm-demo" }), 1);
+  assert.equal(await rates.countDocuments({ code: "hcm-city-demo" }), 0);
+  const saved = await rates.findOne({ code: "hcm-demo" });
+  assert.equal(saved.isActive, false);
 });

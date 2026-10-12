@@ -92,6 +92,9 @@ export function adminShippingRatesRouter({ db }) {
     const current = await shippingRates.findOne({ _id: id });
     if (!current) throw notFound("Shipping rate not found");
     const values = normalizeRate(req.body, { partial: true });
+    if (values.code && values.code !== current.code && current.isDemo && !current.createdByUserId) {
+      throw new HttpError(400, "VALIDATION_ERROR", "Seeded shipping rate codes cannot be changed");
+    }
     if (values.code && values.code !== current.code && await shippingRates.findOne({ code: values.code, _id: { $ne: id } })) {
       throw duplicateCode();
     }
