@@ -6,7 +6,6 @@ export async function createIndexes(db) {
   const c = collections(db);
   const created = [];
   const duplicateShippingCodes = await c.shippingRates.aggregate([
-    { $match: { code: { $type: "string" } } },
     { $group: { _id: "$code", count: { $sum: 1 }, rateIds: { $push: "$_id" } } },
     { $match: { count: { $gt: 1 } } },
     { $limit: 5 }

@@ -95,6 +95,34 @@ test("create-index setup preflights both unique keys before creating either inde
   assert.equal((await orders.indexes()).some((index) => index.name === "userId_1_checkoutRequestId_1"), false);
 });
 
+test("create-index setup preflights missing and null shipping codes as the same unique key", async () => {
+  await db.dropDatabase();
+  await db.createCollection("users");
+  await db.createCollection("orders");
+  const rates = db.collection("shipping_rates");
+  const missingCodeRate = { _id: new ObjectId(), regionName: "Missing code", isActive: true };
+  const nullCodeRate = { _id: new ObjectId(), code: null, regionName: "Null code", isActive: true };
+  await rates.insertMany([missingCodeRate, nullCodeRate]);
+
+  await assert.rejects(createIndexes(db), (error) => {
+    assert.match(error.message, /shipping_rates\.code/i);
+    assert.match(error.message, /null/i);
+    assert.ok(error.message.includes(missingCodeRate._id.toHexString()));
+    assert.ok(error.message.includes(nullCodeRate._id.toHexString()));
+    return true;
+  });
+  assert.deepEqual(await rates.findOne({ _id: missingCodeRate._id }), missingCodeRate);
+  assert.deepEqual(await rates.findOne({ _id: nullCodeRate._id }), nullCodeRate);
+
+  const customUniqueIndexes = [];
+  for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) {
+    for (const index of await db.collection(name).indexes()) {
+      if (index.unique && index.name !== "_id_") customUniqueIndexes.push(`${name}.${index.name}`);
+    }
+  }
+  assert.deepEqual(customUniqueIndexes, []);
+});
+
 test("seed and additive migration are repeatable and preserve legacy addresses and order history", async () => {
   await db.dropDatabase();
   const userId = new ObjectId();
