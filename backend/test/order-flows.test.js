@@ -78,11 +78,25 @@ test("checkout derives shipping from the active rate and retries one request ide
     deliveryFee: 999999,
     shippingAddress: { receiverName: "Order Customer", receiverPhone: "0900000000", fullAddress: "1 Demo Street", regionCode: "hcm-demo", regionName: "Forged Region" }
   };
-  const [created, retry] = await Promise.all([
+  const before = {
+    orders: await db.collection("orders").countDocuments({ userId: customer._id }),
+    reservedQuantity: (await db.collection("inventories").findOne({ variantId })).reservedQuantity,
+    voucherUses: (await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount
+  };
+  const responses = await Promise.all([
     customerAgent.post("/api/orders").send(body),
     customerAgent.post("/api/orders").send(body)
   ]);
-  assert.equal(created.status, 201);
+  const responseDetails = JSON.stringify(responses.map(({ status, body: responseBody }) => ({ status, body: responseBody })));
+  const createdResponses = responses.filter(({ status }) => status === 201);
+  const inProgressResponses = responses.filter(({ status, body: responseBody }) =>
+    status === 409 && responseBody?.error?.code === "CHECKOUT_IN_PROGRESS"
+  );
+  assert.ok(
+    createdResponses.length === 2 || (createdResponses.length === 1 && inProgressResponses.length === 1),
+    `Unexpected concurrent checkout outcomes: ${responseDetails}`
+  );
+  const created = createdResponses[0];
   orderId = created.body.data.id;
   assert.equal(created.body.data.orderStatus, "pending");
   assert.equal(created.body.data.items[0].unitPrice, 100000);
@@ -93,12 +107,19 @@ test("checkout derives shipping from the active rate and retries one request ide
   assert.deepEqual(created.body.data.shippingRateSnapshot, {
     regionCode: "hcm-demo", regionName: "Hồ Chí Minh (demo)", fee: 25000, currency: "VND", isDemo: true
   });
-  assert.equal(retry.body.data.id, orderId);
-  assert.equal(await db.collection("orders").countDocuments({ userId: customer._id }), 1);
+  if (inProgressResponses.length) {
+    const replay = await customerAgent.post("/api/orders").send(body);
+    assert.equal(replay.status, 201, `Checkout retry failed: ${JSON.stringify({ status: replay.status, body: replay.body })}`);
+    assert.equal(replay.body.data.id, orderId);
+  } else {
+    assert.equal(createdResponses[1].body.data.id, orderId);
+  }
+  assert.equal(await db.collection("orders").countDocuments({ userId: customer._id }), before.orders + 1);
+  assert.equal(await db.collection("orders").countDocuments({ userId: customer._id, checkoutRequestId: body.checkoutRequestId }), 1);
 
   const inventory = await db.collection("inventories").findOne({ variantId });
-  assert.equal(inventory.reservedQuantity, 2);
-  assert.equal((await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount, 1);
+  assert.equal(inventory.reservedQuantity, before.reservedQuantity + body.items[0].quantity);
+  assert.equal((await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount, before.voucherUses + 1);
 });
 
 test("checkout replay does not return a partial order and can retry after compensation", async () => {
