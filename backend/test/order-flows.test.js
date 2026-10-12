@@ -122,6 +122,57 @@ test("checkout derives shipping from the active rate and retries one request ide
   assert.equal((await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount, before.voucherUses + 1);
 });
 
+test("successful markerless legacy checkout replay does not consume resources again", async () => {
+  const body = {
+    checkoutRequestId: "legacy-markerless-replay",
+    items: [{ variantId: variantId.toHexString(), quantity: 1 }],
+    voucherCode: "BELLE10",
+    paymentMethod: "cod",
+    shippingAddress: { receiverName: "Order Customer", receiverPhone: "0900000000", fullAddress: "1 Demo Street", regionCode: "hcm-demo" }
+  };
+  const before = {
+    reservedQuantity: (await db.collection("inventories").findOne({ variantId })).reservedQuantity,
+    voucherUses: (await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount
+  };
+  const created = await createOrder({ db, user: customer, body });
+  for (const collectionName of ["order_histories", "payments", "invoices"]) {
+    assert.ok(await db.collection(collectionName).findOne({ orderId: created._id }));
+  }
+  await db.collection("orders").updateOne({ _id: created._id }, { $unset: { checkoutComplete: "" } });
+
+  const replay = await createOrder({ db, user: customer, body });
+
+  assert.equal(String(replay._id), String(created._id));
+  assert.equal(await db.collection("orders").countDocuments({ userId: customer._id, checkoutRequestId: body.checkoutRequestId }), 1);
+  assert.equal((await db.collection("inventories").findOne({ variantId })).reservedQuantity, before.reservedQuantity + 1);
+  assert.equal((await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount, before.voucherUses + 1);
+});
+
+test("markerless legacy checkout missing any artifact remains in progress", async () => {
+  const artifacts = {
+    order_histories: { oldStatus: null, newStatus: "pending", note: "Order created" },
+    payments: { method: "cod", status: "pending", amount: 0, isMock: true },
+    invoices: { invoiceCode: "INV-LEGACY-INCOMPLETE", status: "pending", amount: 0 }
+  };
+  for (const missingArtifact of Object.keys(artifacts)) {
+    const orderId = new ObjectId();
+    const checkoutRequestId = `legacy-missing-${missingArtifact}`;
+    await db.collection("orders").insertOne({ _id: orderId, userId: customer._id, checkoutRequestId });
+    try {
+      for (const [collectionName, artifact] of Object.entries(artifacts)) {
+        if (collectionName !== missingArtifact) await db.collection(collectionName).insertOne({ ...artifact, orderId });
+      }
+      await assert.rejects(
+        createOrder({ db, user: customer, body: { checkoutRequestId } }),
+        (error) => error.status === 409 && error.code === "CHECKOUT_IN_PROGRESS"
+      );
+    } finally {
+      await Promise.all(Object.keys(artifacts).map((collectionName) => db.collection(collectionName).deleteMany({ orderId })));
+      await db.collection("orders").deleteOne({ _id: orderId });
+    }
+  }
+});
+
 test("checkout replay does not return a partial order and can retry after compensation", async () => {
   const body = {
     checkoutRequestId: "checkout-incomplete-race",
@@ -196,13 +247,15 @@ test("checkout replay does not return a partial order and can retry after compen
   assert.equal((await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount, before.voucher.usedCount + 1);
 });
 
-test("duplicate-key conflict does not return a pending checkout order", async () => {
-  const checkoutRequestId = "checkout-pending-duplicate-key";
+test("duplicate-key conflict does not return an incomplete markerless checkout order", async () => {
+  const checkoutRequestId = "checkout-markerless-incomplete-duplicate-key";
   const pendingOrder = {
     _id: new ObjectId(), orderCode: "PENDING-DUPLICATE-KEY", userId: customer._id,
-    checkoutRequestId, checkoutComplete: false
+    checkoutRequestId
   };
   await db.collection("orders").insertOne(pendingOrder);
+  await db.collection("order_histories").insertOne({ orderId: pendingOrder._id, oldStatus: null, newStatus: "pending" });
+  await db.collection("payments").insertOne({ orderId: pendingOrder._id, method: "cod", status: "pending", amount: 0 });
   const beforeInventory = await db.collection("inventories").findOne({ variantId });
   let hideInitialLookup = true;
   const conflictDb = {
@@ -236,10 +289,71 @@ test("duplicate-key conflict does not return a pending checkout order", async ()
         shippingAddress: { receiverName: "Order Customer", receiverPhone: "0900000000", fullAddress: "1 Demo Street", regionCode: "hcm-demo" }
       }
     }), (error) => error.status === 409 && error.code === "CHECKOUT_IN_PROGRESS");
-    assert.equal((await db.collection("orders").findOne({ _id: pendingOrder._id })).checkoutComplete, false);
+    assert.equal((await db.collection("orders").findOne({ _id: pendingOrder._id })).checkoutComplete, undefined);
+    assert.equal(await db.collection("invoices").findOne({ orderId: pendingOrder._id }), null);
     assert.equal((await db.collection("inventories").findOne({ variantId })).reservedQuantity, beforeInventory.reservedQuantity);
   } finally {
+    await db.collection("order_histories").deleteMany({ orderId: pendingOrder._id });
+    await db.collection("payments").deleteMany({ orderId: pendingOrder._id });
+    await db.collection("invoices").deleteMany({ orderId: pendingOrder._id });
     await db.collection("orders").deleteOne({ _id: pendingOrder._id });
+  }
+});
+
+test("duplicate-key recovery can replay a complete markerless legacy checkout", async () => {
+  const checkoutRequestId = "checkout-markerless-complete-duplicate-key";
+  const legacyOrder = {
+    _id: new ObjectId(), orderCode: "LEGACY-COMPLETE-DUPLICATE-KEY", userId: customer._id,
+    checkoutRequestId
+  };
+  await db.collection("orders").insertOne(legacyOrder);
+  await db.collection("order_histories").insertOne({ orderId: legacyOrder._id, oldStatus: null, newStatus: "pending" });
+  await db.collection("payments").insertOne({ orderId: legacyOrder._id, method: "cod", status: "pending", amount: 0 });
+  await db.collection("invoices").insertOne({ orderId: legacyOrder._id, invoiceCode: "INV-LEGACY-DUPLICATE-KEY", status: "pending", amount: 0 });
+  const before = {
+    reservedQuantity: (await db.collection("inventories").findOne({ variantId })).reservedQuantity,
+    voucherUses: (await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount
+  };
+  let hideInitialLookup = true;
+  const conflictDb = {
+    collection(name) {
+      const target = db.collection(name);
+      if (name !== "orders") return target;
+      return new Proxy(target, {
+        get(collection, property) {
+          if (property === "findOne") return async (...args) => {
+            if (hideInitialLookup) {
+              hideInitialLookup = false;
+              return null;
+            }
+            return collection.findOne(...args);
+          };
+          const value = Reflect.get(collection, property, collection);
+          return typeof value === "function" ? value.bind(collection) : value;
+        }
+      });
+    }
+  };
+
+  try {
+    const replay = await createOrder({
+      db: conflictDb,
+      user: customer,
+      body: {
+        checkoutRequestId,
+        items: [{ variantId: variantId.toHexString(), quantity: 1 }],
+        paymentMethod: "cod",
+        shippingAddress: { receiverName: "Order Customer", receiverPhone: "0900000000", fullAddress: "1 Demo Street", regionCode: "hcm-demo" }
+      }
+    });
+    assert.equal(String(replay._id), String(legacyOrder._id));
+    assert.equal((await db.collection("inventories").findOne({ variantId })).reservedQuantity, before.reservedQuantity);
+    assert.equal((await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount, before.voucherUses);
+  } finally {
+    await db.collection("order_histories").deleteMany({ orderId: legacyOrder._id });
+    await db.collection("payments").deleteMany({ orderId: legacyOrder._id });
+    await db.collection("invoices").deleteMany({ orderId: legacyOrder._id });
+    await db.collection("orders").deleteOne({ _id: legacyOrder._id });
   }
 });
 

@@ -14,6 +14,14 @@ function checkoutInProgress() {
   return new HttpError(409, "CHECKOUT_IN_PROGRESS", "Checkout is still being processed; retry the same request shortly");
 }
 
+async function isCheckoutComplete(db, order) {
+  if (Object.hasOwn(order, "checkoutComplete")) return order.checkoutComplete === true;
+  const artifacts = await Promise.all(["order_histories", "payments", "invoices"].map(
+    (collection) => db.collection(collection).findOne({ orderId: order._id })
+  ));
+  return artifacts.every(Boolean);
+}
+
 export function serializeOrder(order) {
   return {
     ...order,
@@ -53,7 +61,7 @@ export async function createOrder({ db, user, body }) {
     }
     checkoutRequestId = body.checkoutRequestId.trim();
     const existing = await db.collection("orders").findOne({ userId: user._id, checkoutRequestId });
-    if (existing?.checkoutComplete === true) return existing;
+    if (existing && await isCheckoutComplete(db, existing)) return existing;
     if (existing) throw checkoutInProgress();
   }
   if (!Array.isArray(body.items) || !body.items.length) throw new HttpError(400, "VALIDATION_ERROR", "At least one order item is required");
@@ -202,7 +210,7 @@ export async function createOrder({ db, user, body }) {
     if (compensationErrors.length) throw new AggregateError([error, ...compensationErrors], "Checkout failed and compensation was incomplete");
     if (orderInsertDuplicate && checkoutRequestId) {
       const winner = await db.collection("orders").findOne({ userId: user._id, checkoutRequestId });
-      if (winner?.checkoutComplete === true) return winner;
+      if (winner && await isCheckoutComplete(db, winner)) return winner;
       if (winner) throw checkoutInProgress();
     }
     throw error;
