@@ -45,6 +45,7 @@ before(async () => {
   await db.collection("products").insertOne({ _id: productId, name: "Entity Product", slug: "entity-product", brandId, categoryId, isActive: true });
   await db.collection("product_variants").insertOne({ _id: variantId, productId, sku: "ENTITY-001", retailPrice: 100000, originalPrice: 120000, isActive: true });
   await db.collection("inventories").insertOne({ _id: new ObjectId(), storeId, variantId, stockQuantity: 5, reservedQuantity: 0, version: 1 });
+  await db.collection("shipping_rates").insertOne({ _id: new ObjectId(), code: "hcm-demo", regionName: "Hồ Chí Minh (demo)", fee: 25000, currency: "VND", isDemo: true, isActive: true });
   app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
   managerAgent = await login(manager.email);
   customerAgent = await login(customer.email);
@@ -116,7 +117,7 @@ test("appointment booking serializes overlapping requests for one date", async (
 });
 
 test("customer can delete only a pending order and reservation is released", async () => {
-  const created = await customerAgent.post("/api/orders").send({ items: [{ variantId: variantId.toHexString(), quantity: 1 }], paymentMethod: "cod", shippingAddress: { receiverName: "Entity Customer", receiverPhone: "0900000000", fullAddress: "1 Entity Street" } });
+  const created = await customerAgent.post("/api/orders").send({ items: [{ variantId: variantId.toHexString(), quantity: 1 }], paymentMethod: "cod", shippingAddress: { receiverName: "Entity Customer", receiverPhone: "0900000000", fullAddress: "1 Entity Street", regionCode: "hcm-demo" } });
   assert.equal(created.status, 201);
   const id = created.body.data.id;
   const deleted = await customerAgent.delete(`/api/orders/${id}`);
@@ -131,7 +132,7 @@ test("manager can CRUD mock payments and invoices", async () => {
   await db.collection("orders").insertOne({ _id: manualOrderId, orderCode: "ENTITY-MANUAL", finalAmount: 1000, orderStatus: "pending" });
   const nonMock = await managerAgent.post("/api/admin/payments").send({ orderId: manualOrderId.toHexString(), method: "stripe", amount: 1000 });
   assert.equal(nonMock.status, 400);
-  const order = await customerAgent.post("/api/orders").send({ items: [{ variantId: variantId.toHexString(), quantity: 1 }], paymentMethod: "cod", shippingAddress: { receiverName: "Entity Customer", receiverPhone: "0900000000", fullAddress: "1 Entity Street" } });
+  const order = await customerAgent.post("/api/orders").send({ items: [{ variantId: variantId.toHexString(), quantity: 1 }], paymentMethod: "cod", shippingAddress: { receiverName: "Entity Customer", receiverPhone: "0900000000", fullAddress: "1 Entity Street", regionCode: "hcm-demo" } });
   assert.equal(order.status, 201);
   const orderId = order.body.data.id;
   const payments = await managerAgent.get("/api/admin/payments");
