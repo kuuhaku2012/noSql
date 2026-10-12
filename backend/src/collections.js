@@ -10,6 +10,7 @@ export function collections(db) {
     inventories: db.collection("inventories"),
     carts: db.collection("carts"),
     orders: db.collection("orders"),
+    shippingRates: db.collection("shipping_rates"),
     orderHistories: db.collection("order_histories"),
     appointments: db.collection("appointments"),
     consultationReviews: db.collection("consultation_reviews"),

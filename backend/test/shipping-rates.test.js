@@ -1,0 +1,170 @@
+import test, { after, before } from "node:test";
+import assert from "node:assert/strict";
+import bcrypt from "bcryptjs";
+import { MongoClient, ObjectId } from "mongodb";
+import request from "supertest";
+import { createApp } from "../src/app.js";
+import { collections } from "../src/collections.js";
+import { createIndexes } from "../scripts/create-indexes.js";
+import { seedDemo } from "../scripts/seed.js";
+
+const mongoUri = "mongodb://127.0.0.1:27017";
+const dbName = "maison_belle_test_shipping_rates";
+const seedDbName = "maison_belle_test_shipping_rates_seed";
+let client;
+let db;
+let app;
+let connected = false;
+let managerAgent;
+let salesAgent;
+let customerAgent;
+
+before(async () => {
+  client = new MongoClient(mongoUri);
+  await client.connect();
+  connected = true;
+  db = client.db(dbName);
+  await db.dropDatabase();
+  await createIndexes(db);
+
+  const users = ["manager", "sales", "customer"].map((role) => ({
+    _id: new ObjectId(),
+    email: `${role}-shipping@test.local`,
+    fullName: `${role} shipping test`,
+    role,
+    passwordHash: bcrypt.hashSync("Demo@123", 8),
+    isActive: true
+  }));
+  await db.collection("users").insertMany(users);
+  await db.collection("shipping_rates").insertMany([
+    { code: "hcm-demo", regionName: "Hồ Chí Minh (demo)", fee: 25000, currency: "VND", isActive: true, isDemo: true },
+    { code: "hn-demo", regionName: "Hà Nội (demo)", fee: 30000, currency: "VND", isActive: true, isDemo: true },
+    { code: "inactive-demo", regionName: "Inactive (demo)", fee: 10000, currency: "VND", isActive: false, isDemo: true }
+  ]);
+
+  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
+  [managerAgent, salesAgent, customerAgent] = users.map(() => request.agent(app));
+  for (const [agent, user] of [[managerAgent, users[0]], [salesAgent, users[1]], [customerAgent, users[2]]]) {
+    const login = await agent.post("/api/auth/login").send({ email: user.email, password: "Demo@123" });
+    assert.equal(login.status, 200);
+  }
+});
+
+after(async () => {
+  if (!client) return;
+  try {
+    if (connected) {
+      await client.db(dbName).dropDatabase();
+      await client.db(seedDbName).dropDatabase();
+    }
+  } finally {
+    await client.close();
+  }
+});
+
+test("collections exposes the shipping_rates collection", () => {
+  assert.equal(collections(db).shippingRates.collectionName, "shipping_rates");
+});
+
+test("public rate list includes active configured regions only", async () => {
+  const response = await request(app).get("/api/shipping/rates");
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.data, [
+    { regionCode: "hcm-demo", regionName: "Hồ Chí Minh (demo)", fee: 25000, currency: "VND", isDemo: true },
+    { regionCode: "hn-demo", regionName: "Hà Nội (demo)", fee: 30000, currency: "VND", isDemo: true }
+  ]);
+});
+
+test("public quote resolves only an active configured region", async () => {
+  const quote = await request(app).post("/api/shipping/quote").send({ regionCode: "hcm-demo" });
+  assert.equal(quote.status, 200);
+  assert.deepEqual(quote.body.data, {
+    regionCode: "hcm-demo", regionName: "Hồ Chí Minh (demo)", fee: 25000,
+    currency: "VND", isDemo: true
+  });
+
+  for (const regionCode of ["unknown", "inactive-demo"]) {
+    const missing = await request(app).post("/api/shipping/quote").send({ regionCode });
+    assert.equal(missing.status, 409);
+    assert.equal(missing.body.error.code, "SHIPPING_UNAVAILABLE");
+  }
+});
+
+test("manager can list, create, update, and soft-deactivate shipping rates", async () => {
+  const listed = await managerAgent.get("/api/admin/shipping-rates");
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body.data.length, 3);
+
+  const created = await managerAgent.post("/api/admin/shipping-rates").send({
+    regionCode: "  DA-NANG-DEMO ", regionName: " Đà Nẵng (demo) ", fee: 20000, isActive: true
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.data.regionCode, "da-nang-demo");
+  assert.equal(created.body.data.regionName, "Đà Nẵng (demo)");
+  assert.equal(created.body.data.currency, "VND");
+  assert.equal(created.body.data.isDemo, true);
+
+  const updated = await managerAgent.patch(`/api/admin/shipping-rates/${created.body.data.id}`).send({ fee: 22000, isActive: false });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.data.fee, 22000);
+  assert.equal(updated.body.data.isActive, false);
+
+  const deactivated = await managerAgent.delete(`/api/admin/shipping-rates/${created.body.data.id}`);
+  assert.equal(deactivated.status, 200);
+  assert.equal(deactivated.body.data.isActive, false);
+  assert.ok(await db.collection("shipping_rates").findOne({ code: "da-nang-demo" }));
+});
+
+test("shipping-rate reads are manager-only", async () => {
+  assert.equal((await salesAgent.get("/api/admin/shipping-rates")).status, 403);
+  assert.equal((await customerAgent.get("/api/admin/shipping-rates")).status, 403);
+});
+
+test("shipping-rate writes require manager role and validate unique codes and fees", async () => {
+  for (const agent of [salesAgent, customerAgent]) {
+    assert.equal((await agent.post("/api/admin/shipping-rates").send({ regionCode: "denied-demo", regionName: "Denied", fee: 1 })).status, 403);
+    assert.equal((await agent.patch("/api/admin/shipping-rates/hcm-demo").send({ fee: 1 })).status, 403);
+    assert.equal((await agent.delete("/api/admin/shipping-rates/hcm-demo")).status, 403);
+  }
+
+  const duplicate = await managerAgent.post("/api/admin/shipping-rates").send({ regionCode: " HCM-DEMO ", regionName: "Duplicate", fee: 1 });
+  assert.equal(duplicate.status, 409);
+
+  for (const fee of [-1, "25000"]) {
+    const invalid = await managerAgent.post("/api/admin/shipping-rates").send({ regionCode: "invalid-fee", regionName: "Invalid fee", fee });
+    assert.equal(invalid.status, 400);
+  }
+  const blankCode = await managerAgent.post("/api/admin/shipping-rates").send({ regionCode: "  ", regionName: "No code", fee: 0 });
+  assert.equal(blankCode.status, 400);
+  const blankName = await managerAgent.post("/api/admin/shipping-rates").send({ regionCode: "no-name", regionName: "  ", fee: 0 });
+  assert.equal(blankName.status, 400);
+});
+
+test("shipping rate indexes enforce unique codes and support active-region queries", async () => {
+  const indexes = await db.collection("shipping_rates").indexes();
+  assert.ok(indexes.some((index) => index.unique && index.key.code === 1));
+  assert.ok(indexes.some((index) => index.key.isActive === 1 && index.key.code === 1));
+  await assert.rejects(
+    db.collection("shipping_rates").insertOne({ code: "hcm-demo" }),
+    (error) => error.code === 11000
+  );
+});
+
+test("rerunning demo seed preserves manager-edited shipping rates", async () => {
+  const seedDb = client.db(seedDbName);
+  const config = { databaseName: seedDbName, allowDemoSeed: false };
+  await seedDemo(seedDb, config);
+  await seedDb.collection("shipping_rates").updateOne(
+    { code: "hcm-demo" },
+    { $set: { regionName: "Custom HCMC", fee: 42000, isActive: false } }
+  );
+
+  await seedDemo(seedDb, config);
+
+  const saved = await seedDb.collection("shipping_rates").findOne({ code: "hcm-demo" });
+  assert.equal(saved.regionName, "Custom HCMC");
+  assert.equal(saved.fee, 42000);
+  assert.equal(saved.isActive, false);
+  assert.equal(await seedDb.collection("shipping_rates").countDocuments({ code: "hcm-demo" }), 1);
+});

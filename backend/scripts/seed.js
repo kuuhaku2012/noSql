@@ -76,6 +76,10 @@ export function buildDemoData() {
   const memberships = [{ _id: id(), userId: users[0]._id, pointsBalance: 100, lifetimePoints: 100, tier: "bronze", createdAt: now, updatedAt: now, isDemo: true }];
   const pointHistories = [{ _id: id(), userId: users[0]._id, orderId, type: "earned", points: 100, transactionType: "order", description: "Demo points", createdAt: now, isDemo: true }];
   const userAddresses = [{ _id: id(), userId: users[0]._id, receiverName: users[0].fullName, receiverPhone: "0900000000", fullAddress: "Demo address", isDefault: true, createdAt: now, updatedAt: now, isDemo: true }];
+  const shippingRates = [
+    { code: "hcm-demo", regionName: "Hồ Chí Minh (demo)", fee: 25000, currency: "VND", isActive: true, isDemo: true, createdAt: now, updatedAt: now },
+    { code: "hn-demo", regionName: "Hà Nội (demo)", fee: 30000, currency: "VND", isActive: true, isDemo: true, createdAt: now, updatedAt: now }
+  ];
   const payments = [{ _id: id(), orderId, method: "cod", status: "paid", amount: orders[0].finalAmount, isMock: true, createdAt: now, updatedAt: now, isDemo: true }];
   const invoices = [{ _id: id(), orderId, invoiceCode: "INV-DEMO-ORDER-001", status: "issued", amount: orders[0].finalAmount, isMock: true, createdAt: now, updatedAt: now, isDemo: true }];
   return {
@@ -105,6 +109,7 @@ export function buildDemoData() {
     memberships,
     pointHistories,
     userAddresses,
+    shippingRates,
     payments,
     invoices
   };
@@ -141,12 +146,16 @@ export async function seedDemo(db, config) {
   assertSafeSeedDatabase(config);
   const data = buildDemoData();
   for (const [name, records] of Object.entries(data)) {
-    if (!records.length) continue;
+    if (name === "shippingRates" || !records.length) continue;
     const collectionName = seedCollectionNames[name] || name;
     await cleanLegacyDemoCollection(db, name, collectionName);
     const collection = db.collection(collectionName);
     await collection.deleteMany({ isDemo: true });
     await collection.insertMany(records);
+  }
+  const shippingRates = db.collection("shipping_rates");
+  for (const rate of data.shippingRates) {
+    await shippingRates.updateOne({ code: rate.code }, { $setOnInsert: rate }, { upsert: true });
   }
   return data;
 }

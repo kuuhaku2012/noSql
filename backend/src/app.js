@@ -30,6 +30,8 @@ import { engagementRouter } from "./routes/engagement.js";
 import { wishlistsRouter } from "./routes/wishlists.js";
 import { userVouchersRouter } from "./routes/user-vouchers.js";
 import { flashSalesRouter } from "./routes/flash-sales.js";
+import { shippingRouter } from "./routes/shipping.js";
+import { adminShippingRatesRouter } from "./routes/admin-shipping-rates.js";
 
 function toPath(value) {
   return value instanceof URL ? fileURLToPath(value) : value;
@@ -65,9 +67,11 @@ export function createApp({ db = null, config = getConfig() } = {}) {
     api.use("/vouchers", vouchersRouter({ db }));
     api.use("/appointments", appointmentsRouter({ db }));
     api.use("/orders", ordersRouter({ db }));
+    api.use("/shipping", shippingRouter({ db }));
     api.use("/customers", customersRouter({ db }));
     api.use("/returns", returnsRouter({ db }));
     api.use("/admin/products", adminProductsRouter({ db }));
+    api.use("/admin/shipping-rates", adminShippingRatesRouter({ db }));
     api.use("/admin/catalog", adminCatalogRouter({ db }));
     api.use("/admin/users", adminUsersRouter({ db }));
     api.use("/admin/customers", adminCustomersRouter({ db }));

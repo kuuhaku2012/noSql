@@ -26,6 +26,8 @@ export async function createIndexes(db) {
   await add(c.inventories, { storeId: 1, variantId: 1 }, { unique: true });
   await add(c.carts, { userId: 1 }, { unique: true, sparse: true });
   await add(c.carts, { sessionId: 1 }, { unique: true, sparse: true });
+  await add(c.shippingRates, { code: 1 }, { unique: true });
+  await add(c.shippingRates, { isActive: 1, code: 1 });
   await add(c.orders, { orderCode: 1 }, { unique: true });
   await add(c.orders, { userId: 1, createdAt: -1 });
   await add(c.orders, { orderStatus: 1, createdAt: -1 });
