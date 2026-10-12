@@ -99,6 +99,44 @@ test("warehouse can create delivery and manager can create a return", async () =
   assert.equal(returned.body.data.status, "requested");
 });
 
+test("return approval does not restock and receipt restores accepted stock once", async () => {
+  const returnStoreId = new ObjectId();
+  const returnOrderId = new ObjectId();
+  await db.collection("inventories").insertOne({
+    _id: new ObjectId(), storeId: returnStoreId, variantId, stockQuantity: 4, reservedQuantity: 0, version: 1
+  });
+  await db.collection("orders").insertOne({
+    _id: returnOrderId,
+    orderCode: "MB-RETURN-REPLAY",
+    storeId: returnStoreId,
+    orderStatus: "completed",
+    items: [{ variantId, quantity: 2, unitPrice: 50000 }],
+    createdAt: new Date("2025-01-01T00:00:00.000Z")
+  });
+
+  const created = await managerAgent.post("/api/admin/returns").send({
+    orderId: returnOrderId.toHexString(), reason: "Demo return", items: [{ variantId: variantId.toHexString(), quantity: 1 }]
+  });
+  assert.equal(created.status, 201);
+  const returnId = new ObjectId(created.body.data.id);
+  const approved = await managerAgent.patch(`/api/admin/returns/${returnId}`).send({ status: "approved" });
+  assert.equal(approved.status, 200);
+  assert.equal((await db.collection("inventories").findOne({ storeId: returnStoreId, variantId })).stockQuantity, 4);
+  assert.equal(await db.collection("inventory_logs").countDocuments({ returnId }), 0);
+
+  const received = await managerAgent.patch(`/api/admin/returns/${returnId}`).send({ status: "received" });
+  assert.equal(received.status, 200);
+  assert.equal((await db.collection("inventories").findOne({ storeId: returnStoreId, variantId })).stockQuantity, 5);
+  assert.equal(await db.collection("inventory_logs").countDocuments({ returnId }), 1);
+
+  const replay = await managerAgent.patch(`/api/admin/returns/${returnId}`).send({ status: "received" });
+  assert.equal(replay.status, 200);
+  assert.equal((await db.collection("inventories").findOne({ storeId: returnStoreId, variantId })).stockQuantity, 5);
+  assert.equal(await db.collection("inventory_logs").countDocuments({ returnId }), 1);
+  const stored = await db.collection("returns").findOne({ _id: returnId });
+  assert.deepEqual(stored.history.map(({ status }) => status), ["requested", "approved", "received"]);
+});
+
 test("reports are manager-only and exclude cancelled orders", async () => {
   const denied = await salesAgent.get("/api/admin/reports");
   assert.equal(denied.status, 403);

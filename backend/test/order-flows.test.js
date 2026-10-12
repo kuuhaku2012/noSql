@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { MongoClient, ObjectId } from "mongodb";
 import request from "supertest";
 import { createApp } from "../src/app.js";
-import { createOrder } from "../src/services/order-service.js";
+import { createOrder, transitionOrder } from "../src/services/order-service.js";
 import { createIndexes } from "../scripts/create-indexes.js";
 
 const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
@@ -19,6 +19,7 @@ let sales;
 let customerAgent;
 let salesAgent;
 let orderId;
+let lifecycleOrderSequence = 0;
 
 before(async () => {
   client = new MongoClient(mongoUri);
@@ -58,6 +59,24 @@ after(async () => {
   await client?.db(indexDbName).dropDatabase();
   await client?.close();
 });
+
+async function createLifecycleOrder({ paymentMethod = "cod", quantity = 1 } = {}) {
+  const response = await customerAgent.post("/api/orders").send({
+    checkoutRequestId: `lifecycle-${++lifecycleOrderSequence}`,
+    items: [{ variantId: variantId.toHexString(), quantity }],
+    paymentMethod,
+    shippingAddress: { receiverName: "Order Customer", receiverPhone: "0900000000", fullAddress: "1 Demo Street", regionCode: "hcm-demo" }
+  });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  return new ObjectId(response.body.data.id);
+}
+
+async function advanceOrder(orderId, statuses) {
+  for (const status of statuses) {
+    const response = await salesAgent.patch(`/api/orders/${orderId}/status`).send({ status });
+    assert.equal(response.status, 200, `${status}: ${JSON.stringify(response.body)}`);
+  }
+}
 
 test("customer can replace a cart and validate a voucher", async () => {
   const saved = await customerAgent.put("/api/cart").send({ items: [{ variantId: variantId.toHexString(), quantity: 2 }] });
@@ -453,6 +472,178 @@ test("staff can confirm an order but customer cannot", async () => {
   const confirmed = await salesAgent.patch(`/api/orders/${orderId}/status`).send({ status: "confirmed" });
   assert.equal(confirmed.status, 200);
   assert.equal(confirmed.body.data.orderStatus, "confirmed");
+});
+
+test("COD stays pending through delivery, rejects mock payment, and settles only on completion", async () => {
+  const inventoryBefore = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder();
+  const order = await db.collection("orders").findOne({ _id: id });
+  assert.equal(order.orderStatus, "pending");
+  assert.equal(order.paymentStatus, "pending");
+
+  const rejectedPayment = await customerAgent.post(`/api/orders/${id}/payment`).send({ outcome: "success" });
+  assert.equal(rejectedPayment.status, 409);
+  assert.equal(rejectedPayment.body.error.code, "PAYMENT_NOT_SUPPORTED");
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "pending");
+
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  assert.equal((await db.collection("orders").findOne({ _id: id })).paymentStatus, "pending");
+  await advanceOrder(id, ["completed"]);
+
+  const settled = await db.collection("orders").findOne({ _id: id });
+  assert.equal(settled.orderStatus, "completed");
+  assert.equal(settled.paymentStatus, "paid");
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "paid");
+  assert.equal((await db.collection("invoices").findOne({ orderId: id })).status, "issued");
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id }), 6);
+  for (const status of ["pending", "confirmed", "processing", "shipped", "delivered", "completed"]) {
+    assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: status }), 1);
+  }
+
+  const repeatedCompletion = await salesAgent.patch(`/api/orders/${id}/status`).send({ status: "completed" });
+  assert.equal(repeatedCompletion.status, 409);
+  assert.equal((await db.collection("inventories").findOne({ variantId })).stockQuantity, inventoryBefore.stockQuantity - 1);
+  assert.equal((await db.collection("inventories").findOne({ variantId })).reservedQuantity, inventoryBefore.reservedQuantity);
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id }), 6);
+});
+
+test("concurrent completion commits only this order's stock reservation once", async () => {
+  const inventoryBefore = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder();
+  await createLifecycleOrder(); // A second reservation leaves enough reserved stock to expose a duplicate commit.
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  const order = await db.collection("orders").findOne({ _id: id });
+
+  let releaseOrderClaims;
+  const bothOrderClaimsReady = new Promise((resolve) => { releaseOrderClaims = resolve; });
+  let orderClaimCount = 0;
+  const racingDb = {
+    collection(name) {
+      const target = db.collection(name);
+      if (name !== "orders") return target;
+      return new Proxy(target, {
+        get(collection, property) {
+          if (property === "findOneAndUpdate") return async (filter, ...args) => {
+            if (String(filter._id) === String(id) && filter.orderStatus === "delivered") {
+              orderClaimCount += 1;
+              if (orderClaimCount === 2) releaseOrderClaims();
+              await bothOrderClaimsReady;
+            }
+            return collection.findOneAndUpdate(filter, ...args);
+          };
+          const value = Reflect.get(collection, property, collection);
+          return typeof value === "function" ? value.bind(collection) : value;
+        }
+      });
+    }
+  };
+
+  const attempts = await Promise.allSettled([
+    transitionOrder({ db: racingDb, order, user: sales, status: "completed" }),
+    transitionOrder({ db: racingDb, order, user: sales, status: "completed" })
+  ]);
+
+  assert.equal(
+    attempts.filter((attempt) => attempt.status === "fulfilled").length,
+    1,
+    attempts.map((attempt) => attempt.status === "rejected" ? `${attempt.reason.code || attempt.reason.name}: ${attempt.reason.message}` : attempt.status).join("; ")
+  );
+  const rejected = attempts.find((attempt) => attempt.status === "rejected");
+  assert.equal(rejected.reason.status, 409);
+  const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+  assert.equal(inventoryAfter.stockQuantity, inventoryBefore.stockQuantity - 1);
+  assert.equal(inventoryAfter.reservedQuantity, inventoryBefore.reservedQuantity + 1);
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: "completed" }), 1);
+});
+
+test("failed multi-item completion restores earlier stock writes and can be retried", async () => {
+  const secondProductId = new ObjectId();
+  const secondVariantId = new ObjectId();
+  const store = await db.collection("stores").findOne({ name: "Order Store" });
+  await db.collection("products").insertOne({ _id: secondProductId, slug: `lifecycle-extra-${++lifecycleOrderSequence}`, name: "Lifecycle Extra", isActive: true });
+  await db.collection("product_variants").insertOne({ _id: secondVariantId, productId: secondProductId, sku: "LIFECYCLE-EXTRA", retailPrice: 20000, isActive: true });
+  await db.collection("inventories").insertOne({ _id: new ObjectId(), storeId: store._id, variantId: secondVariantId, stockQuantity: 5, reservedQuantity: 0, version: 1 });
+  const created = await customerAgent.post("/api/orders").send({
+    checkoutRequestId: `lifecycle-partial-${lifecycleOrderSequence}`,
+    items: [
+      { variantId: variantId.toHexString(), quantity: 1 },
+      { variantId: secondVariantId.toHexString(), quantity: 1 }
+    ],
+    paymentMethod: "cod",
+    shippingAddress: { receiverName: "Order Customer", receiverPhone: "0900000000", fullAddress: "1 Demo Street", regionCode: "hcm-demo" }
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const id = new ObjectId(created.body.data.id);
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  const firstBefore = await db.collection("inventories").findOne({ variantId });
+  const secondBefore = await db.collection("inventories").findOne({ variantId: secondVariantId });
+  await db.collection("inventories").updateOne({ _id: secondBefore._id }, { $set: { reservedQuantity: 0 } });
+
+  const failed = await salesAgent.patch(`/api/orders/${id}/status`).send({ status: "completed" });
+  assert.equal(failed.status, 409);
+  assert.equal(failed.body.error.code, "STOCK_COMMIT_FAILED");
+  assert.equal((await db.collection("orders").findOne({ _id: id })).orderStatus, "delivered");
+  const firstAfterFailure = await db.collection("inventories").findOne({ _id: firstBefore._id });
+  assert.equal(firstAfterFailure.stockQuantity, firstBefore.stockQuantity);
+  assert.equal(firstAfterFailure.reservedQuantity, firstBefore.reservedQuantity);
+  const secondAfterFailure = await db.collection("inventories").findOne({ _id: secondBefore._id });
+  assert.equal(secondAfterFailure.stockQuantity, secondBefore.stockQuantity);
+  assert.equal(secondAfterFailure.reservedQuantity, 0);
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: "completed" }), 0);
+
+  await db.collection("inventories").updateOne({ _id: secondBefore._id }, { $set: { reservedQuantity: 1 } });
+  const retried = await salesAgent.patch(`/api/orders/${id}/status`).send({ status: "completed" });
+  assert.equal(retried.status, 200);
+  assert.equal((await db.collection("inventories").findOne({ _id: firstBefore._id })).stockQuantity, firstBefore.stockQuantity - 1);
+  assert.equal((await db.collection("inventories").findOne({ _id: secondBefore._id })).stockQuantity, secondBefore.stockQuantity - 1);
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: "completed" }), 1);
+});
+
+test("replayed pending-order cancellation releases reservation and writes history once", async () => {
+  const inventoryBefore = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder({ paymentMethod: "mock", quantity: 2 });
+  const responses = await Promise.all([
+    salesAgent.delete(`/api/orders/${id}`),
+    salesAgent.delete(`/api/orders/${id}`)
+  ]);
+
+  assert.deepEqual(responses.map(({ status }) => status).sort((a, b) => a - b), [200, 409]);
+  const cancelled = await db.collection("orders").findOne({ _id: id });
+  assert.equal(cancelled.orderStatus, "cancelled");
+  assert.equal(cancelled.reservationReleased, true);
+  const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+  assert.equal(inventoryAfter.stockQuantity, inventoryBefore.stockQuantity);
+  assert.equal(inventoryAfter.reservedQuantity, inventoryBefore.reservedQuantity);
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: "cancelled" }), 1);
+
+  const payment = await customerAgent.post(`/api/orders/${id}/payment`).send({ outcome: "success" });
+  assert.equal(payment.status, 409);
+  assert.equal(payment.body.error.code, "ORDER_NOT_PAYABLE");
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "pending");
+});
+
+test("delivery replay marks the shipped order delivered and records each effect once", async () => {
+  const id = await createLifecycleOrder();
+  await advanceOrder(id, ["confirmed", "processing", "shipped"]);
+  const order = await db.collection("orders").findOne({ _id: id });
+  const created = await salesAgent.post("/api/admin/deliveries").send({
+    orderId: id.toHexString(), storeId: order.storeId.toHexString(), deliveryAddress: "1 Demo Street"
+  });
+  assert.equal(created.status, 201);
+  const deliveryId = created.body.data.id;
+  for (const status of ["assigned", "picked_up", "in_transit", "delivered"]) {
+    const response = await salesAgent.patch(`/api/admin/deliveries/${deliveryId}`).send({ status });
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+  }
+  const replay = await salesAgent.patch(`/api/admin/deliveries/${deliveryId}`).send({ status: "delivered" });
+  assert.equal(replay.status, 409);
+
+  const delivery = await db.collection("deliveries").findOne({ _id: new ObjectId(deliveryId) });
+  assert.equal(delivery.status, "delivered");
+  assert.deepEqual(delivery.history.map(({ status }) => status), ["ready", "assigned", "picked_up", "in_transit", "delivered"]);
+  assert.equal((await db.collection("orders").findOne({ _id: id })).orderStatus, "delivered");
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, oldStatus: "shipped", newStatus: "delivered" }), 1);
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "pending");
 });
 
 test("customer can create and list an appointment", async () => {

@@ -222,7 +222,7 @@ export async function transitionOrder({ db, order, user, status, note = "" }) {
   if (status === "cancelled" && !order.reservationReleased) {
     const now = new Date();
     const claimed = await db.collection("orders").findOneAndUpdate(
-      { _id: order._id, orderStatus: order.orderStatus, reservationReleased: { $ne: true } },
+      { _id: order._id, orderStatus: order.orderStatus, reservationReleased: { $ne: true }, stockCommitClaim: { $exists: false } },
       { $set: { orderStatus: "cancelled", updatedAt: now, lastUpdatedByUserId: user._id } },
       { returnDocument: "after" }
     );
@@ -245,18 +245,79 @@ export async function transitionOrder({ db, order, user, status, note = "" }) {
     await db.collection("order_histories").insertOne({ orderId: order._id, oldStatus: order.orderStatus, newStatus: status, note, createdByUserId: user._id, createdAt: now });
     return saved;
   }
-  if (status === "completed" && !order.stockCommitted) {
-    for (const item of order.items) {
-      const result = await db.collection("inventories").updateOne({ storeId: order.storeId, variantId: item.variantId, stockQuantity: { $gte: item.quantity }, reservedQuantity: { $gte: item.quantity } }, { $inc: { stockQuantity: -item.quantity, reservedQuantity: -item.quantity, version: 1 }, $set: { updatedAt: new Date() } });
-      if (result.modifiedCount !== 1) throw new HttpError(409, "STOCK_COMMIT_FAILED", `Could not commit stock for ${item.sku}`);
-    }
-  }
+  const commitsStock = status === "completed" && !order.stockCommitted;
+  const completionClaim = commitsStock ? new ObjectId() : null;
+  const committedItems = [];
   const now = new Date();
-  const update = { orderStatus: status, updatedAt: now, lastUpdatedByUserId: user._id };
-  if (status === "cancelled") update.reservationReleased = true;
-  if (status === "completed") { update.stockCommitted = true; update.paymentStatus = "paid"; }
-  const saved = await db.collection("orders").findOneAndUpdate({ _id: order._id, orderStatus: order.orderStatus }, { $set: update }, { returnDocument: "after" });
-  if (!saved) throw new HttpError(409, "CONCURRENT_UPDATE", "Order was changed by another request");
+  if (completionClaim) {
+    const claimed = await db.collection("orders").findOneAndUpdate(
+      {
+        _id: order._id,
+        orderStatus: order.orderStatus,
+        stockCommitted: { $ne: true },
+        stockCommitClaim: { $exists: false }
+      },
+      { $set: { stockCommitClaim: completionClaim } },
+      { returnDocument: "after" }
+    );
+    if (!claimed) throw new HttpError(409, "CONCURRENT_UPDATE", "Order was changed by another request");
+  }
+
+  let saved;
+  try {
+    if (completionClaim) {
+      for (const item of order.items) {
+        const result = await db.collection("inventories").updateOne(
+          { storeId: order.storeId, variantId: item.variantId, stockQuantity: { $gte: item.quantity }, reservedQuantity: { $gte: item.quantity } },
+          { $inc: { stockQuantity: -item.quantity, reservedQuantity: -item.quantity, version: 1 }, $set: { updatedAt: new Date() } }
+        );
+        if (result.modifiedCount !== 1) throw new HttpError(409, "STOCK_COMMIT_FAILED", `Could not commit stock for ${item.sku}`);
+        committedItems.push(item);
+      }
+    }
+
+    const update = { orderStatus: status, updatedAt: now, lastUpdatedByUserId: user._id };
+    if (status === "cancelled") update.reservationReleased = true;
+    if (status === "completed") { update.stockCommitted = true; update.paymentStatus = "paid"; }
+    const filter = { _id: order._id, orderStatus: order.orderStatus };
+    if (completionClaim) {
+      filter.stockCommitClaim = completionClaim;
+    } else {
+      filter.stockCommitClaim = { $exists: false };
+    }
+    const updateDocument = { $set: update };
+    if (completionClaim) updateDocument.$unset = { stockCommitClaim: "" };
+    saved = await db.collection("orders").findOneAndUpdate(filter, updateDocument, { returnDocument: "after" });
+    if (!saved) throw new HttpError(409, "CONCURRENT_UPDATE", "Order was changed by another request");
+  } catch (error) {
+    if (completionClaim) {
+      const compensationErrors = [];
+      for (const item of committedItems.reverse()) {
+        try {
+          const restored = await db.collection("inventories").updateOne(
+            { storeId: order.storeId, variantId: item.variantId },
+            { $inc: { stockQuantity: item.quantity, reservedQuantity: item.quantity, version: 1 }, $set: { updatedAt: new Date() } }
+          );
+          if (restored.modifiedCount !== 1) throw new Error(`Could not restore stock for ${item.sku}`);
+        } catch (compensationError) {
+          compensationErrors.push(compensationError);
+        }
+      }
+      if (compensationErrors.length === 0) {
+        try {
+          const released = await db.collection("orders").updateOne(
+            { _id: order._id, stockCommitClaim: completionClaim },
+            { $unset: { stockCommitClaim: "" } }
+          );
+          if (released.modifiedCount !== 1) throw new Error("Could not release the order completion claim");
+        } catch (compensationError) {
+          compensationErrors.push(compensationError);
+        }
+      }
+      if (compensationErrors.length) throw new AggregateError([error, ...compensationErrors], "Order completion failed and compensation was incomplete");
+    }
+    throw error;
+  }
   await db.collection("order_histories").insertOne({ orderId: order._id, oldStatus: order.orderStatus, newStatus: status, note, createdByUserId: user._id, createdAt: now });
   if (status === "completed" && !order.stockCommitted) {
     await db.collection("payments").updateOne({ orderId: order._id }, { $set: { status: "paid", paidAt: now, updatedAt: now } });
