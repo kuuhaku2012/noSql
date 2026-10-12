@@ -101,6 +101,127 @@ test("checkout derives shipping from the active rate and retries one request ide
   assert.equal((await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount, 1);
 });
 
+test("checkout replay does not return a partial order and can retry after compensation", async () => {
+  const body = {
+    checkoutRequestId: "checkout-incomplete-race",
+    items: [{ variantId: variantId.toHexString(), quantity: 1 }],
+    voucherCode: "BELLE10",
+    paymentMethod: "cod",
+    shippingAddress: { receiverName: "Order Customer", receiverPhone: "0900000000", fullAddress: "1 Demo Street", regionCode: "hcm-demo" }
+  };
+  const before = {
+    inventory: await db.collection("inventories").findOne({ variantId }),
+    voucher: await db.collection("vouchers").findOne({ code: "BELLE10" })
+  };
+  let notifyOrderInserted;
+  let resumeFirstAttempt;
+  const orderInserted = new Promise((resolve) => { notifyOrderInserted = resolve; });
+  const firstAttemptGate = new Promise((resolve) => { resumeFirstAttempt = resolve; });
+  const failingDb = {
+    collection(name) {
+      const target = db.collection(name);
+      if (name === "orders") {
+        return new Proxy(target, {
+          get(collection, property) {
+            if (property === "insertOne") return async (order) => {
+              const result = await collection.insertOne(order);
+              notifyOrderInserted();
+              await firstAttemptGate;
+              return result;
+            };
+            const value = Reflect.get(collection, property, collection);
+            return typeof value === "function" ? value.bind(collection) : value;
+          }
+        });
+      }
+      if (name === "payments") {
+        return new Proxy(target, {
+          get(collection, property) {
+            if (property === "insertOne") return async () => { throw new Error("injected payment write failure"); };
+            const value = Reflect.get(collection, property, collection);
+            return typeof value === "function" ? value.bind(collection) : value;
+          }
+        });
+      }
+      return target;
+    }
+  };
+
+  const firstAttempt = createOrder({ db: failingDb, user: customer, body });
+  await orderInserted;
+  const pendingOrder = await db.collection("orders").findOne({ userId: customer._id, checkoutRequestId: body.checkoutRequestId });
+  assert.equal(pendingOrder.checkoutComplete, false);
+  let replayOrder;
+  let replayError;
+  try { replayOrder = await createOrder({ db, user: customer, body }); }
+  catch (error) { replayError = error; }
+  resumeFirstAttempt();
+  await assert.rejects(firstAttempt, /injected payment write failure/);
+
+  assert.equal(replayOrder, undefined, "a retry must not receive the pending order as success");
+  assert.equal(replayError?.status, 409);
+  assert.equal(replayError?.code, "CHECKOUT_IN_PROGRESS");
+  assert.equal(await db.collection("orders").countDocuments({ userId: customer._id, checkoutRequestId: body.checkoutRequestId }), 0);
+  assert.equal((await db.collection("inventories").findOne({ variantId })).reservedQuantity, before.inventory.reservedQuantity);
+  assert.equal((await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount, before.voucher.usedCount);
+
+  await createOrder({ db, user: customer, body });
+  const completedOrder = await db.collection("orders").findOne({ userId: customer._id, checkoutRequestId: body.checkoutRequestId });
+  assert.equal(completedOrder.checkoutComplete, true);
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: completedOrder._id }), 1);
+  assert.equal(await db.collection("payments").countDocuments({ orderId: completedOrder._id }), 1);
+  assert.equal(await db.collection("invoices").countDocuments({ orderId: completedOrder._id }), 1);
+  assert.equal((await db.collection("inventories").findOne({ variantId })).reservedQuantity, before.inventory.reservedQuantity + 1);
+  assert.equal((await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount, before.voucher.usedCount + 1);
+});
+
+test("duplicate-key conflict does not return a pending checkout order", async () => {
+  const checkoutRequestId = "checkout-pending-duplicate-key";
+  const pendingOrder = {
+    _id: new ObjectId(), orderCode: "PENDING-DUPLICATE-KEY", userId: customer._id,
+    checkoutRequestId, checkoutComplete: false
+  };
+  await db.collection("orders").insertOne(pendingOrder);
+  const beforeInventory = await db.collection("inventories").findOne({ variantId });
+  let hideInitialLookup = true;
+  const conflictDb = {
+    collection(name) {
+      const target = db.collection(name);
+      if (name !== "orders") return target;
+      return new Proxy(target, {
+        get(collection, property) {
+          if (property === "findOne") return async (...args) => {
+            if (hideInitialLookup) {
+              hideInitialLookup = false;
+              return null;
+            }
+            return collection.findOne(...args);
+          };
+          const value = Reflect.get(collection, property, collection);
+          return typeof value === "function" ? value.bind(collection) : value;
+        }
+      });
+    }
+  };
+
+  try {
+    await assert.rejects(createOrder({
+      db: conflictDb,
+      user: customer,
+      body: {
+        checkoutRequestId,
+        items: [{ variantId: variantId.toHexString(), quantity: 1 }],
+        paymentMethod: "cod",
+        shippingAddress: { receiverName: "Order Customer", receiverPhone: "0900000000", fullAddress: "1 Demo Street", regionCode: "hcm-demo" }
+      }
+    }), (error) => error.status === 409 && error.code === "CHECKOUT_IN_PROGRESS");
+    assert.equal((await db.collection("orders").findOne({ _id: pendingOrder._id })).checkoutComplete, false);
+    assert.equal((await db.collection("inventories").findOne({ variantId })).reservedQuantity, beforeInventory.reservedQuantity);
+  } finally {
+    await db.collection("orders").deleteOne({ _id: pendingOrder._id });
+  }
+});
+
 test("unsupported or missing shipping regions reject checkout before consuming anything", async () => {
   const before = {
     inventory: await db.collection("inventories").findOne({ variantId }),

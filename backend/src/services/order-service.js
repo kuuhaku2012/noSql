@@ -10,6 +10,10 @@ function serialize(value) {
   return value && typeof value.toHexString === "function" ? value.toHexString() : value;
 }
 
+function checkoutInProgress() {
+  return new HttpError(409, "CHECKOUT_IN_PROGRESS", "Checkout is still being processed; retry the same request shortly");
+}
+
 export function serializeOrder(order) {
   return {
     ...order,
@@ -49,7 +53,8 @@ export async function createOrder({ db, user, body }) {
     }
     checkoutRequestId = body.checkoutRequestId.trim();
     const existing = await db.collection("orders").findOne({ userId: user._id, checkoutRequestId });
-    if (existing) return existing;
+    if (existing?.checkoutComplete === true) return existing;
+    if (existing) throw checkoutInProgress();
   }
   if (!Array.isArray(body.items) || !body.items.length) throw new HttpError(400, "VALIDATION_ERROR", "At least one order item is required");
   validateBody({ paymentMethod: { required: true, type: "string" } }, body);
@@ -156,6 +161,7 @@ export async function createOrder({ db, user, body }) {
       paymentMethod: body.paymentMethod,
       paymentStatus: "pending",
       orderStatus: "pending",
+      checkoutComplete: false,
       reservationReleased: false,
       stockCommitted: false,
       createdAt: now,
@@ -170,6 +176,12 @@ export async function createOrder({ db, user, body }) {
     await db.collection("order_histories").insertOne({ orderId: order._id, oldStatus: null, newStatus: "pending", note: "Order created", createdByUserId: user._id, createdAt: now });
     await db.collection("payments").insertOne({ orderId: order._id, method: body.paymentMethod, status: "pending", amount: order.finalAmount, isMock: true, createdAt: now });
     await db.collection("invoices").insertOne({ orderId: order._id, invoiceCode: `INV-${order.orderCode}`, status: "pending", amount: order.finalAmount, createdAt: now });
+    const completion = await db.collection("orders").updateOne(
+      { _id: order._id, checkoutComplete: false },
+      { $set: { checkoutComplete: true } }
+    );
+    if (completion.modifiedCount !== 1) throw new Error("Checkout completion marker could not be persisted");
+    order.checkoutComplete = true;
     return order;
   } catch (error) {
     const compensationErrors = [];
@@ -190,7 +202,8 @@ export async function createOrder({ db, user, body }) {
     if (compensationErrors.length) throw new AggregateError([error, ...compensationErrors], "Checkout failed and compensation was incomplete");
     if (orderInsertDuplicate && checkoutRequestId) {
       const winner = await db.collection("orders").findOne({ userId: user._id, checkoutRequestId });
-      if (winner) return winner;
+      if (winner?.checkoutComplete === true) return winner;
+      if (winner) throw checkoutInProgress();
     }
     throw error;
   }
