@@ -8,7 +8,7 @@ import { collections } from "../src/collections.js";
 import { createIndexes } from "../scripts/create-indexes.js";
 import { seedDemo } from "../scripts/seed.js";
 
-const mongoUri = "mongodb://127.0.0.1:27017";
+const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 const configuredDbPrefix = process.env.MONGODB_TEST_DB || "maison_belle_test";
 if (!/^maison_belle_test(?:_|$)/.test(configuredDbPrefix)) {
   throw new Error("MONGODB_TEST_DB must use the maison_belle_test_ prefix");
@@ -68,6 +68,7 @@ after(async () => {
 });
 
 test("shipping-rate test databases use the configured prefix and isolate each process", () => {
+  assert.equal(mongoUri, process.env.MONGODB_URI || "mongodb://127.0.0.1:27017");
   assert.equal(dbName, `${testDbPrefix}_shipping_rates`);
   assert.equal(seedDbName, `${testDbPrefix}_shipping_rates_seed`);
   assert.equal(testDbPrefix, `${configuredDbPrefix}_${process.pid}`);
