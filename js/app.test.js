@@ -78,12 +78,13 @@ test("theme control displays only its icon and keeps an accessible action label"
   const listeners = {};
   const button = {
     addEventListener(type, listener) { listeners[type] = listener; },
-    setAttribute(name, value) { attrs[name] = value; }
+    setAttribute(name, value) { attrs[name] = value; },
+    set innerHTML(value) { this.textContent = value; }
   };
   const host = { querySelector() { return null; }, prepend() {} };
   const document = {
     documentElement: { dataset: {} },
-    querySelector() { return host; },
+    querySelector(selector) { return selector === "#admin-theme-control" ? null : host; },
     createElement() { return button; }
   };
   global.document = document;
@@ -116,7 +117,10 @@ test("nav indicator also follows the product category menu", () => {
     addEventListener(type, listener) { linkListeners.summary = listener; },
     getBoundingClientRect() { return { left: 80, width: 90 }; }
   };
-  const pill = { style: {} };
+  const pill = {
+    style: { removeProperty(name) { delete this[name]; } },
+    getBoundingClientRect() { return { left: 0, width: 0 }; }
+  };
   const nav = {
     prepend() {},
     getBoundingClientRect() { return { left: 0 }; },
@@ -163,7 +167,10 @@ test("product category menu closes when the pointer leaves or another nav item i
     querySelectorAll() { return [directLink]; },
     addEventListener(type, listener) { navListeners[type] = listener; }
   };
-  global.document = { querySelector() { return nav; }, createElement() { return { style: {} }; } };
+  global.document = { querySelector() { return nav; }, createElement() { return {
+    style: { removeProperty(name) { delete this[name]; } },
+    getBoundingClientRect() { return { left: 0, width: 0 }; }
+  }; } };
   global.matchMedia = () => ({ matches: false });
   global.addEventListener = () => {};
 
