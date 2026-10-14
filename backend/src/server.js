@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createApp } from "./app.js";
 import { getConfig } from "./config.js";
 import { closeDatabase, connectDatabase } from "./db.js";
@@ -7,6 +8,7 @@ const config = getConfig();
 const { client, db } = await connectDatabase(config);
 await migrateModel(db);
 const app = createApp({ db, config });
+app.set("trust proxy", config.trustProxy);
 const server = app.listen(config.port, () => {
   console.log(`Maison Belle backend listening on http://localhost:${config.port}`);
 });
