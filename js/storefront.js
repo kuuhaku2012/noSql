@@ -598,7 +598,11 @@
               update();
             }, 1000);
           } catch (error) {
-            if (active(requestGeneration)) status.textContent = MB.errorMessage(error);
+            if (active(requestGeneration)) status.textContent = recovery
+              ? error?.code === "EMAIL_NOT_CONFIGURED"
+                ? MB.errorMessage(error)
+                : "Nếu email đã đăng ký, yêu cầu chưa thể được xử lý lúc này. Vui lòng thử lại sau."
+              : MB.errorMessage(error);
           } finally {
             if (active(requestGeneration)) { sending = false; update(); }
           }

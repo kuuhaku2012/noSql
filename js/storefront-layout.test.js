@@ -382,6 +382,25 @@ test("send failures display in the requesting form without starting a timer", as
   assert.equal(fixture.forms["password-reset-form"].status.textContent, "");
 });
 
+test("recovery-code failures hide account-dependent messages but preserve EMAIL_NOT_CONFIGURED", async () => {
+  const addressDependent = await accountFixture({ sendPasswordResetCode: async () => { throw { code: "EMAIL_CODE_RATE_LIMITED", message: "No reset request is allowed for this address" }; } });
+  await addressDependent.forgot();
+  const recovery = addressDependent.forms["password-reset-form"];
+  addressDependent.email(recovery, "belle@example.com");
+  await recovery.send.listeners.click();
+  assert.equal(recovery.status.textContent, "Nếu email đã đăng ký, yêu cầu chưa thể được xử lý lúc này. Vui lòng thử lại sau.");
+  assert.doesNotMatch(recovery.status.textContent, /No reset request/);
+  assert.equal(addressDependent.timers.size, 0);
+
+  const unconfigured = await accountFixture({ sendPasswordResetCode: async () => { throw { code: "EMAIL_NOT_CONFIGURED", message: "Email delivery is not configured" }; } });
+  await unconfigured.forgot();
+  const unconfiguredForm = unconfigured.forms["password-reset-form"];
+  unconfigured.email(unconfiguredForm, "belle@example.com");
+  await unconfiguredForm.send.listeners.click();
+  assert.equal(unconfiguredForm.status.textContent, "Email delivery is not configured");
+  assert.equal(unconfigured.timers.size, 0);
+});
+
 test("closing recovery clears timers and secrets; late acceptance cannot restart them", async () => {
   let accept;
   const fixture = await accountFixture({ sendPasswordResetCode: () => new Promise((resolve) => { accept = resolve; }) });
