@@ -6,6 +6,7 @@ import { createSmtpMailer } from "../src/services/smtp-mailer.js";
 import { createAuthEmailCodeService } from "../src/services/auth-email-codes.js";
 
 const dbName = "maison_belle_test_auth_email_codes";
+const collectionPrefix = `task2_otp_${process.pid}_`;
 if (process.env.MONGODB_TEST_DB !== dbName) {
   throw new Error(`MONGODB_TEST_DB must be exactly ${dbName}`);
 }
@@ -14,7 +15,8 @@ let db;
 before(async () => {
   client = new MongoClient("mongodb://127.0.0.1:27017", { serverSelectionTimeoutMS: 5000 });
   await client.connect();
-  db = client.db(dbName);
+  const database = client.db(dbName);
+  db = { collection: (name, ...args) => database.collection(`${collectionPrefix}${name}`, ...args) };
   await db.collection("auth_email_verifications").drop().catch((error) => {
     if (error.code !== 26) throw error;
   });
@@ -32,7 +34,7 @@ async function makeFixture({ email, mailer, codeSecret = secret } = {}) {
     sentCodes.set(`${purpose}:${email}`, code);
   } };
   return { service: createAuthEmailCodeService({ db, mailer: transport, secret: codeSecret, now }), sentCodes, now,
-    setNow: (value) => { clock = new Date(value); }, email };
+    setNow: (value) => { clock = new Date(value); }, email, mailer: transport };
 }
 const invalid = (error) => error.status === 400 && /invalid|expired|used|attempt/i.test(error.message) && typeof error.code === "string";
 const limited = (error) => error.status === 429 && error.code === "EMAIL_CODE_RATE_LIMITED";
@@ -160,6 +162,51 @@ test("simultaneous correct submissions consume a code exactly once", async () =>
   const results = await Promise.allSettled([1, 2].map(() => f.service.consumeCode({ email: f.email, purpose: "register", code })));
   assert.deepEqual(results.filter((result) => result.status === "fulfilled").map((result) => result.value), [true]);
   assert.ok(invalid(results.find((result) => result.status === "rejected").reason));
+});
+
+test("a stale sender cannot overwrite a newer challenge after reserving first", async () => {
+  const email = "stale-reservation@test.local";
+  const sentCodes = new Map();
+  const mailer = { configured: true, sendAuthCode: async ({ email, purpose, code }) => sentCodes.set(`${purpose}:${email}`, code) };
+  const f = await makeFixture({ email, mailer });
+  let reachedChallengeWrite;
+  const challengeWriteReached = new Promise((resolve) => { reachedChallengeWrite = resolve; });
+  let releaseStaleWrite;
+  const staleWriteGate = new Promise((resolve) => { releaseStaleWrite = resolve; });
+  let paused = false;
+  const fencedDb = {
+    collection(name) {
+      const collection = db.collection(name);
+      if (name !== "auth_email_verifications") return collection;
+      return new Proxy(collection, {
+        get(target, property) {
+          if (property === "updateOne") return async (filter, ...args) => {
+            if (!paused && filter?._id === `challenge:register:${email}`) {
+              paused = true;
+              reachedChallengeWrite();
+              await staleWriteGate;
+            }
+            return target.updateOne(filter, ...args);
+          };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    }
+  };
+  const first = createAuthEmailCodeService({ db: fencedDb, mailer, secret, now: f.now });
+  const second = createAuthEmailCodeService({ db, mailer, secret, now: f.now });
+  const firstSend = first.sendCode({ email, purpose: "register" });
+  await challengeWriteReached;
+  f.setNow(new Date(f.now().getTime() + 60_000));
+  await second.sendCode({ email, purpose: "register" });
+  const secondCode = sentCodes.get(`register:${email}`);
+  releaseStaleWrite();
+  await assert.rejects(firstSend, (error) => error.code === "EMAIL_CODE_SUPERSEDED");
+  const stored = await db.collection("auth_email_verifications").findOne({ email, purpose: "register" });
+  assert.equal(stored.issuanceGeneration, 2);
+  assert.equal(stored.codeHash, createHmac("sha256", secret).update(`register:${email}:${secondCode}`).digest("hex"));
+  assert.equal(await second.consumeCode({ email, purpose: "register", code: secondCode }), true);
 });
 
 test("failed mail delivery expires its challenge and retains the cooldown", async () => {

@@ -7,24 +7,39 @@ import { buildDemoData, assertSafeSeedDatabase, seedDemo } from "../scripts/seed
 
 const mongoUri = "mongodb://127.0.0.1:27017";
 const dbName = "maison_belle_test_auth_email_codes";
+const collectionPrefix = `task2_seed_safety_${process.pid}_`;
 if (process.env.MONGODB_TEST_DB !== dbName) {
   throw new Error(`MONGODB_TEST_DB must be exactly ${dbName}`);
 }
 let client;
+let mongoDb;
 let db;
 let connected = false;
+
+async function resetSeedFixture() {
+  const collections = await mongoDb.listCollections({ name: { $regex: `^${collectionPrefix}` } }, { nameOnly: true }).toArray();
+  for (const { name } of collections) await mongoDb.collection(name).drop();
+}
 
 before(async () => {
   client = new MongoClient(mongoUri);
   await client.connect();
   connected = true;
-  db = client.db(dbName);
-  await db.dropDatabase();
+  mongoDb = client.db(dbName);
+  db = {
+    collection: (name, ...args) => mongoDb.collection(`${collectionPrefix}${name}`, ...args),
+    createCollection: (name, ...args) => mongoDb.createCollection(`${collectionPrefix}${name}`, ...args),
+    listCollections: (filter = {}, ...args) => mongoDb.listCollections({
+      ...filter,
+      name: typeof filter.name === "string" ? `${collectionPrefix}${filter.name}` : { $regex: `^${collectionPrefix}` }
+    }, ...args)
+  };
+  await resetSeedFixture();
 });
 
 after(async () => {
   try {
-    if (connected) await client.db(dbName).dropDatabase();
+    if (connected) await resetSeedFixture();
   } finally {
     await client?.close();
   }
@@ -71,7 +86,7 @@ test("create-index setup preflights both unique keys before creating either inde
   assert.equal((await rates.indexes()).some((index) => index.unique && index.key.code === 1), false);
   assert.equal((await db.collection("orders").indexes()).some((index) => index.name === "userId_1_checkoutRequestId_1"), false);
 
-  await db.dropDatabase();
+  await resetSeedFixture();
   await db.createCollection("users");
   await db.createCollection("shipping_rates");
   const userId = new ObjectId();
@@ -95,7 +110,7 @@ test("create-index setup preflights both unique keys before creating either inde
 });
 
 test("create-index setup preflights missing and null shipping codes as the same unique key", async () => {
-  await db.dropDatabase();
+  await resetSeedFixture();
   await db.createCollection("users");
   await db.createCollection("orders");
   const rates = db.collection("shipping_rates");
@@ -114,8 +129,8 @@ test("create-index setup preflights missing and null shipping codes as the same 
   assert.deepEqual(await rates.findOne({ _id: nullCodeRate._id }), nullCodeRate);
 
   const customUniqueIndexes = [];
-  for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) {
-    for (const index of await db.collection(name).indexes()) {
+  for (const { name } of await mongoDb.listCollections({ name: { $regex: `^${collectionPrefix}` } }, { nameOnly: true }).toArray()) {
+    for (const index of await mongoDb.collection(name).indexes()) {
       if (index.unique && index.name !== "_id_") customUniqueIndexes.push(`${name}.${index.name}`);
     }
   }
@@ -123,7 +138,7 @@ test("create-index setup preflights missing and null shipping codes as the same 
 });
 
 test("seed and additive migration are repeatable and preserve legacy addresses and order history", async () => {
-  await db.dropDatabase();
+  await resetSeedFixture();
   const userId = new ObjectId();
   const orderId = new ObjectId();
   const legacyAddress = {
@@ -168,4 +183,17 @@ test("seed and additive migration are repeatable and preserve legacy addresses a
   assert.equal((await db.collection("user_addresses").findOne({ _id: legacyAddress._id })).regionCode, undefined);
   assert.equal((await db.collection("orders").findOne({ _id: orderId })).shippingAddress.regionCode, undefined);
   assert.equal(await db.collection("shipping_rates").countDocuments({ code: "hcm-demo" }), 1);
+});
+
+test("seed cleanup preserves OTP namespace data during concurrent fixture activity", async () => {
+  const otpProbe = mongoDb.collection(`task2_otp_${process.pid}_isolation_probe`);
+  const sentinel = { _id: "otp-fixture-sentinel", scope: "must-survive-seed-cleanup" };
+  await otpProbe.insertOne(sentinel);
+  const [, write] = await Promise.all([
+    resetSeedFixture(),
+    otpProbe.updateOne({ _id: sentinel._id }, { $set: { concurrentWrite: true } })
+  ]);
+  assert.equal(write.matchedCount, 1);
+  assert.deepEqual(await otpProbe.findOne({ _id: sentinel._id }), { ...sentinel, concurrentWrite: true });
+  await otpProbe.drop();
 });

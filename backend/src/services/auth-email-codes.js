@@ -6,6 +6,7 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const invalidCodeError = () => new HttpError(400, "EMAIL_CODE_INVALID", "Email code is invalid, expired, used, or has too many attempts");
 const notConfiguredError = () => new HttpError(503, "EMAIL_NOT_CONFIGURED", "Email delivery is not configured");
+const supersededCodeError = () => new HttpError(409, "EMAIL_CODE_SUPERSEDED", "A newer email code request has superseded this one");
 
 export function createAuthEmailCodeService({ db, mailer, secret, now = () => new Date() }) {
   const codes = collections(db).authEmailVerifications;
@@ -33,19 +34,19 @@ export function createAuthEmailCodeService({ db, mailer, secret, now = () => new
     return createHmac("sha256", secret).update(`${purpose}:${email}:${code}`).digest("hex");
   }
 
-  async function reserveSend(email, time) {
+  async function reserveSend(email, purpose, time) {
     // A purpose-less record shares limits across both auth purposes. Its stable
     // _id makes initialization safe even before the additive indexes are run.
     const _id = `send-window:${email}`;
     const purgeAt = new Date(time.getTime() + 24 * HOUR);
     try {
-      await codes.updateOne({ _id }, { $setOnInsert: { email, sends: 0, windowStartedAt: time, purgeAt } }, { upsert: true });
+      await codes.updateOne({ _id }, { $setOnInsert: { email, sends: 0, issuanceGenerations: {}, windowStartedAt: time, purgeAt } }, { upsert: true });
     } catch (error) {
       if (error.code !== 11000) throw error;
     }
     const windowCutoff = new Date(time.getTime() - HOUR);
     const reset = { $lte: ["$windowStartedAt", windowCutoff] };
-    const reserved = await codes.updateOne({
+    const reserved = await codes.findOneAndUpdate({
       _id,
       $and: [
         { $or: [{ lastSentAt: { $exists: false } }, { lastSentAt: { $lte: new Date(time.getTime() - MINUTE) } }] },
@@ -54,33 +55,54 @@ export function createAuthEmailCodeService({ db, mailer, secret, now = () => new
     }, [{ $set: {
       sends: { $cond: [reset, 1, { $add: ["$sends", 1] }] },
       windowStartedAt: { $cond: [reset, time, "$windowStartedAt"] },
+      issuanceGenerations: { $mergeObjects: [
+        { $ifNull: ["$issuanceGenerations", {}] },
+        { [purpose]: { $add: [{ $ifNull: [`$issuanceGenerations.${purpose}`, 0] }, 1] } }
+      ] },
       lastSentAt: time,
       purgeAt
-    } }]);
-    if (reserved.modifiedCount !== 1) {
+    } }], { returnDocument: "after" });
+    const reservation = reserved?.value ?? reserved;
+    if (!reservation) {
       throw new HttpError(429, "EMAIL_CODE_RATE_LIMITED", "Email code send limit reached. Please try again later.");
     }
+    return reservation.issuanceGenerations?.[purpose];
+  }
+
+  async function isCurrentReservation(email, purpose, issuanceGeneration) {
+    const reservation = await codes.findOne({ _id: `send-window:${email}` }, { projection: { issuanceGenerations: 1 } });
+    return reservation?.issuanceGenerations?.[purpose] === issuanceGeneration;
   }
 
   async function sendCode({ email, purpose }) {
     assertSendConfigured();
     const key = identity(email, purpose);
     const time = now();
-    await reserveSend(key.email, time);
+    const issuanceGeneration = await reserveSend(key.email, key.purpose, time);
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
     const codeHash = digest(key, code);
     const expiresAt = new Date(time.getTime() + 10 * MINUTE);
     const challengeId = `challenge:${key.purpose}:${key.email}`;
     await codes.updateOne({ _id: challengeId }, {
+      $max: { issuanceGeneration },
+      $setOnInsert: { ...key, purgeAt: new Date(time.getTime() + 24 * HOUR) }
+    }, { upsert: true });
+    if (!await isCurrentReservation(key.email, key.purpose, issuanceGeneration)) throw supersededCodeError();
+    const replacement = await codes.updateOne({ _id: challengeId, issuanceGeneration }, {
       $set: { ...key, codeHash, attempts: 0, codeExpiresAt: expiresAt, purgeAt: new Date(time.getTime() + 24 * HOUR) },
       $unset: { usedAt: "" }
-    }, { upsert: true });
+    });
+    if (replacement.matchedCount !== 1) throw supersededCodeError();
+    if (!await isCurrentReservation(key.email, key.purpose, issuanceGeneration)) {
+      await codes.updateOne({ _id: challengeId, issuanceGeneration, codeHash, codeExpiresAt: expiresAt }, { $set: { codeExpiresAt: now() } });
+      throw supersededCodeError();
+    }
     try {
       // Task 1 currently reads `to`; `email` preserves the service contract.
       await mailer.sendAuthCode({ ...key, to: key.email, code, expiresAt });
     } catch {
       // Do not expire a newer challenge if a slow, older delivery fails.
-      await codes.updateOne({ _id: challengeId, codeHash, codeExpiresAt: expiresAt }, { $set: { codeExpiresAt: now() } });
+      await codes.updateOne({ _id: challengeId, issuanceGeneration, codeHash, codeExpiresAt: expiresAt }, { $set: { codeExpiresAt: now() } });
       throw new HttpError(503, "EMAIL_DELIVERY_FAILED", "Email could not be sent. Please try again later.");
     }
     return { expiresAt };
