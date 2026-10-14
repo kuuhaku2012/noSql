@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-Thiết kế được duyệt trong hội thoại ngày 2026-10-14; chờ người dùng rà soát tài liệu trước khi lập kế hoạch triển khai.
+Thiết kế được người dùng duyệt trong hội thoại ngày 2026-10-14; kế hoạch triển khai được lưu tại `docs/superpowers/plans/`.
 
 ## Mục tiêu
 
@@ -41,8 +41,8 @@ Thiết kế được duyệt trong hội thoại ngày 2026-10-14; chờ ngư�
 
 ## 2. Quên và đặt lại mật khẩu
 
-- Nút “Quên mật khẩu?” mở luồng gồm email, gửi mã, mã xác minh, mật khẩu mới và nhập lại mật khẩu.
-- `POST /api/auth/password-reset/send-code` nhận `{ email }`; phản hồi không tiết lộ email có tài khoản hay không. Nếu email không tồn tại, không gửi thư.
+- Nút “Quên mật khẩu?” mở luồng gồm email, gửi mã, mã xác minh, mật khẩu mới và nhập lại mật khẩu. Phản hồi gửi mã giữ nội dung chung cho các lỗi tạm thời, không hiển thị thông báo máy chủ có thể khác nhau theo trạng thái tài khoản; chỉ lỗi cấu hình `EMAIL_NOT_CONFIGURED` được nêu rõ để người dùng biết dịch vụ chưa sẵn sàng.
+- `POST /api/auth/password-reset/send-code` nhận `{ email }`; với mọi email hợp lệ, phản hồi luôn chung và không tiết lộ email có tài khoản hay không. Nếu email không tồn tại, không gửi thư. Trường hợp bị giới hạn gửi hoặc SMTP lỗi trong lúc gửi cũng trả cùng phản hồi chung; phản hồi này xác nhận đã nhận yêu cầu, không khẳng định email đã được gửi. Nếu SMTP/secret chưa được cấu hình, trả `503` đồng nhất trước khi kiểm tra tài khoản.
 - `POST /api/auth/password-reset` nhận `{ email, verificationCode, newPassword }`; xác minh mục đích/mã/thời hạn/lượt thử, hash mật khẩu bằng bcrypt và cập nhật người dùng.
 - Sau khi đổi mật khẩu, tăng phiên bản xác thực của tài khoản. JWT mới mang phiên bản hiện tại; middleware từ chối các cookie phiên được phát hành trước đó. Tài khoản cũ chưa có trường phiên bản được xem như phiên bản `0`, không cần backfill. Người dùng đăng nhập lại sau khi đặt lại mật khẩu.
 - Mã đặt lại chỉ dùng một lần và tuân theo cùng chính sách thời hạn, thử mã và giới hạn gửi của OTP đăng ký.
@@ -51,7 +51,7 @@ Thiết kế được duyệt trong hội thoại ngày 2026-10-14; chờ ngư�
 
 - Dùng Nodemailer với cấu hình `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` và secret riêng `AUTH_CODE_SECRET`; ví dụ biến được bổ sung vào `.env.example` nhưng không có giá trị bí mật.
 - Mailer được tiêm vào router để test bằng transport giả. Không cần gửi email thật trong bộ kiểm thử.
-- Nếu cấu hình thiếu, trả `503 EMAIL_NOT_CONFIGURED`. Nếu gửi thư thất bại, vô hiệu mã vừa tạo và trả lỗi có thể thử lại; không để mã chưa nhận được vẫn dùng được.
+- Nếu cấu hình SMTP hoặc `AUTH_CODE_SECRET` thiếu, trả `503 EMAIL_NOT_CONFIGURED` đồng nhất trước khi tra cứu tài khoản. Nếu gửi thư thất bại, vô hiệu mã vừa tạo để mã chưa nhận được không thể dùng. Với đăng ký, trả lỗi giao thư có thể thử lại; riêng luồng đặt lại mật khẩu vẫn trả phản hồi chung `202` để không tiết lộ tài khoản tồn tại, không khẳng định thư đã gửi và cho phép người dùng yêu cầu lại sau.
 - Không đưa mã, mật khẩu, SMTP credentials hoặc nội dung nhạy cảm vào log. Nội dung HTML email phải escape dữ liệu động.
 - Không ghi nhận rằng tích hợp đã gửi được email thật cho đến khi có cấu hình SMTP hợp lệ và kiểm tra thủ công thành công.
 
@@ -79,7 +79,7 @@ Thiết kế được duyệt trong hội thoại ngày 2026-10-14; chờ ngư�
 
 ## Kiểm chứng chấp nhận
 
-- API: email sai định dạng, mã sai/hết hạn/dùng lại, sai mục đích, vượt lượt thử, giới hạn gửi, SMTP thiếu cấu hình/lỗi gửi, đăng ký thành công, trùng email, đặt lại mật khẩu thành công và cookie cũ bị từ chối.
+- API: email sai định dạng, mã sai/hết hạn/dùng lại, sai mục đích, vượt lượt thử, giới hạn gửi, SMTP thiếu cấu hình/lỗi gửi, đăng ký thành công, trùng email, đặt lại mật khẩu thành công và cookie cũ bị từ chối. Xác nhận reset-send có cùng status/body cho email có và không có tài khoản khi gửi thành công, bị giới hạn hoặc SMTP lỗi; không gửi thư cho email không tồn tại và mã bị lỗi gửi không thể dùng.
 - Kiểm tra mật khẩu được hash, OTP không lưu dạng thô, thông tin xác thực không lộ trong response/log, phản hồi quên mật khẩu không tiết lộ sự tồn tại tài khoản.
 - Frontend: kiểm tra email trực tiếp, trạng thái gửi mã, lỗi/đếm ngược gửi lại, xác nhận mật khẩu, điều hướng đăng nhập sau khi đổi mật khẩu.
 - Chatbot: kiểm tra từng ý định FAQ, fallback, liên kết, không truy cập dữ liệu riêng tư, không lưu hội thoại, hiển thị an toàn cho chuỗi HTML và thao tác bàn phím/mobile.
