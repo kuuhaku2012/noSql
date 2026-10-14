@@ -15,7 +15,7 @@ export function publicUser(user) {
 }
 
 export function signSession(user, secret) {
-  return jwt.sign({ sub: user._id.toString(), role: user.role }, secret, { expiresIn: "7d" });
+  return jwt.sign({ sub: user._id.toString(), role: user.role, authVersion: user.authVersion ?? 0 }, secret, { expiresIn: "7d" });
 }
 
 export async function authenticate(req, _res, next) {
@@ -26,6 +26,9 @@ export async function authenticate(req, _res, next) {
     const userId = toReference(payload.sub, "userId");
     const user = await req.app.locals.db.collection("users").findOne({ _id: userId, isActive: true });
     if (!user) throw new HttpError(401, "AUTH_INVALID", "Session is invalid or expired");
+    if ((payload.authVersion ?? 0) !== (user.authVersion ?? 0)) {
+      throw new HttpError(401, "AUTH_INVALID", "Session is invalid or expired");
+    }
     req.user = user;
     next();
   } catch (error) {

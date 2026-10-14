@@ -1,6 +1,7 @@
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import { MongoClient } from "mongodb";
 import request from "supertest";
 import { createApp } from "../src/app.js";
@@ -267,6 +268,55 @@ test("reset atomically consumes once, changes the hash, increments authVersion a
   const reused = await f.agent.post("/api/auth/password-reset").send(reset(email, code));
   assert.equal(reused.status, 400);
   assert.equal(reused.body.error.code, "EMAIL_CODE_INVALID");
+});
+
+test("password reset invalidates old sessions and a fresh login authenticates with the new password", async () => {
+  const f = await makeFixture();
+  const email = await seedUser(f);
+  const oldSession = request.agent(f.app);
+  await oldSession.post("/api/auth/login").send({ email, password: "Old@123" }).expect(200);
+  await oldSession.get("/api/auth/me").expect(200);
+  await f.agent.post("/api/auth/password-reset/send-code").send({ email }).expect(202);
+  const code = f.sent.get(`password_reset:${email}`);
+  await f.agent.post("/api/auth/password-reset").send(reset(email, code)).expect(204);
+  const invalid = await oldSession.get("/api/auth/me");
+  assert.equal(invalid.status, 401);
+  assert.deepEqual(invalid.body.error, { code: "AUTH_INVALID", message: "Session is invalid or expired" });
+  const freshSession = request.agent(f.app);
+  await freshSession.post("/api/auth/login").send({ email, password: "New@123" }).expect(200);
+  await freshSession.get("/api/auth/me").expect(200);
+});
+
+test("session versions default absent claims and user fields to zero and reject mismatches", async () => {
+  const f = await makeFixture();
+  const email = await seedUser(f);
+  const user = await f.db.collection("users").findOne({ email });
+  for (const [userVersion, claimVersion, status] of [
+    [undefined, undefined, 200], [undefined, 0, 200], [0, undefined, 200],
+    [1, undefined, 401], [undefined, 1, 401], [1, 0, 401], [1, 1, 200]
+  ]) {
+    await f.db.collection("users").updateOne({ email }, userVersion === undefined
+      ? { $unset: { authVersion: "" } } : { $set: { authVersion: userVersion } });
+    const claims = { sub: user._id.toString(), role: user.role };
+    if (claimVersion !== undefined) claims.authVersion = claimVersion;
+    const token = jwt.sign(claims, f.config.jwtSecret, { expiresIn: "7d" });
+    const response = await request(f.app).get("/api/auth/me").set("Cookie", `mb_token=${token}`);
+    assert.equal(response.status, status, `user=${userVersion}, claim=${claimVersion}`);
+    if (status === 401) assert.equal(response.body.error.code, "AUTH_INVALID");
+  }
+});
+
+test("versioned sessions preserve customer, sales, warehouse and manager role protection", async () => {
+  const f = await makeFixture();
+  for (const [role, catalogStatus, inventoryStatus] of [
+    ["customer", 403, 403], ["sales", 200, 403], ["warehouse", 200, 200], ["manager", 200, 200]
+  ]) {
+    const email = await seedUser(f, `${role}@test.local`, { role, authVersion: 1 });
+    const agent = request.agent(f.app);
+    await agent.post("/api/auth/login").send({ email, password: "Old@123" }).expect(200);
+    await agent.get("/api/admin/products").expect(catalogStatus);
+    await agent.get("/api/admin/inventory").expect(inventoryStatus);
+  }
 });
 
 test("deactivation between send and reset leaves the password and authVersion unchanged", async () => {
