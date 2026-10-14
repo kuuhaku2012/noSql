@@ -2,6 +2,7 @@ export function collections(db) {
   return {
     roles: db.collection("roles"),
     users: db.collection("users"),
+    authEmailVerifications: db.collection("auth_email_verifications"),
     stores: db.collection("stores"),
     brands: db.collection("brands"),
     categories: db.collection("categories"),

@@ -28,6 +28,8 @@ export async function createIndexes(db) {
 
   await add(c.users, { email: 1 }, { unique: true });
   await add(c.users, { phone: 1 }, { unique: true, sparse: true });
+  await add(c.authEmailVerifications, { email: 1, purpose: 1 }, { unique: true });
+  await add(c.authEmailVerifications, { purgeAt: 1 }, { expireAfterSeconds: 0 });
   await add(c.products, { slug: 1 }, { unique: true });
   await add(c.products, { name: 1, isActive: 1 });
   await add(c.products, { categoryId: 1, brandId: 1, isActive: 1 });

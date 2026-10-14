@@ -5,12 +5,11 @@ import { createIndexes } from "../scripts/create-indexes.js";
 import { migrateModel } from "../scripts/migrate-model.js";
 import { buildDemoData, assertSafeSeedDatabase, seedDemo } from "../scripts/seed.js";
 
-const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
-const configuredDbPrefix = process.env.MONGODB_TEST_DB || "maison_belle_test_t5";
-if (!/^maison_belle_test_[a-z0-9_]+$/i.test(configuredDbPrefix)) {
-  throw new Error("MONGODB_TEST_DB must use a short maison_belle_test_* prefix");
+const mongoUri = "mongodb://127.0.0.1:27017";
+const dbName = "maison_belle_test_auth_email_codes";
+if (process.env.MONGODB_TEST_DB !== dbName) {
+  throw new Error(`MONGODB_TEST_DB must be exactly ${dbName}`);
 }
-const dbName = `${configuredDbPrefix}_${process.pid}_seed_safety`;
 let client;
 let db;
 let connected = false;
@@ -146,8 +145,18 @@ test("seed and additive migration are repeatable and preserve legacy addresses a
 
   const config = { databaseName: dbName, allowDemoSeed: false };
   await seedDemo(db, config);
+  const legacyUser = { _id: userId, email: "legacy-index@test.local", passwordHash: "legacy-hash", addresses: [legacyAddress], emailVerified: false };
+  await db.collection("users").insertOne(legacyUser);
+  const usersBeforeIndexes = await db.collection("users").find().sort({ _id: 1 }).toArray();
+  const userCountBeforeIndexes = await db.collection("users").countDocuments();
   await createIndexes(db);
   await createIndexes(db);
+  assert.deepEqual(await db.collection("users").find().sort({ _id: 1 }).toArray(), usersBeforeIndexes);
+  assert.equal(await db.collection("users").countDocuments(), userCountBeforeIndexes);
+  assert.deepEqual(await db.collection("users").findOne({ _id: userId }), legacyUser);
+  const authIndexes = await db.collection("auth_email_verifications").indexes();
+  assert.ok(authIndexes.some((index) => index.unique === true && JSON.stringify(index.key) === JSON.stringify({ email: 1, purpose: 1 })));
+  assert.ok(authIndexes.some((index) => index.expireAfterSeconds === 0 && JSON.stringify(index.key) === JSON.stringify({ purgeAt: 1 })));
   await migrateModel(db);
   await migrateModel(db);
   await seedDemo(db, config);
