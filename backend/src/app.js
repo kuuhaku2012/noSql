@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cookieParser from "cookie-parser";
 import express from "express";
+import { createAuthEmailCodeService } from "./services/auth-email-codes.js";
+import { createSmtpMailer } from "./services/smtp-mailer.js";
 import { getConfig } from "./config.js";
 import { errorHandler, notFoundHandler } from "./middleware/errors.js";
 import { authRouter } from "./routes/auth.js";
@@ -37,9 +39,14 @@ function toPath(value) {
   return value instanceof URL ? fileURLToPath(value) : value;
 }
 
-export function createApp({ db = null, config = getConfig() } = {}) {
+export function createApp({ db = null, config = getConfig(), mailer: injectedMailer } = {}) {
   const app = express();
   const api = express.Router();
+
+  const trustProxy = config.trustProxy === undefined || config.trustProxy === null || config.trustProxy === false
+    ? false
+    : getConfig({ TRUST_PROXY: config.trustProxy }).trustProxy;
+  app.set("trust proxy", trustProxy);
 
   app.use((req, res, next) => {
     req.requestId = req.header("x-request-id") || crypto.randomUUID();
@@ -54,7 +61,9 @@ export function createApp({ db = null, config = getConfig() } = {}) {
   });
 
   if (db) {
-    api.use("/auth", authRouter({ db, config }));
+    const mailer = injectedMailer || createSmtpMailer(config);
+    const authEmailCodes = createAuthEmailCodeService({ db, mailer, secret: config.authCodeSecret });
+    api.use("/auth", authRouter({ db, config, authEmailCodes }));
     api.use("/products", productsRouter({ db }));
     api.use("/", reviewsRouter({ db }));
     api.use("/", engagementRouter({ db }));

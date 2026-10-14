@@ -7,6 +7,9 @@ import { createApp } from "../src/app.js";
 
 const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 const dbName = process.env.MONGODB_TEST_DB || "maison_belle_test";
+const collectionPrefix = `task3_auth_products_${process.pid}_`;
+const ownedCollections = new Set();
+const sentCodes = new Map();
 let client;
 let db;
 let app;
@@ -19,8 +22,25 @@ let sales;
 before(async () => {
   client = new MongoClient(mongoUri);
   await client.connect();
-  db = client.db(dbName);
-  await db.dropDatabase();
+  const database = client.db(dbName);
+  const scopedCollections = new Map();
+  db = { collection(name, ...args) {
+    const scopedName = `${collectionPrefix}${name}`;
+    ownedCollections.add(scopedName);
+    if (!scopedCollections.has(name)) {
+      const collection = database.collection(scopedName, ...args);
+      scopedCollections.set(name, name === "products" ? new Proxy(collection, {
+        get(target, property) {
+          if (property === "aggregate") return (pipeline, ...aggregateArgs) => target.aggregate(pipeline.map((stage) => stage.$lookup?.from === "product_variants"
+            ? { ...stage, $lookup: { ...stage.$lookup, from: `${collectionPrefix}product_variants` } }
+            : stage), ...aggregateArgs);
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      }) : collection);
+    }
+    return scopedCollections.get(name);
+  } };
   const roleCustomer = new ObjectId();
   const roleSales = new ObjectId();
   customer = { _id: new ObjectId(), email: "customer@test.local", fullName: "Test Customer", role: "customer", roleId: roleCustomer, passwordHash: bcrypt.hashSync("Demo@123", 8), isActive: true };
@@ -37,12 +57,21 @@ before(async () => {
   await db.collection("product_variants").insertOne({ _id: variantId, productId, sku: "TEST-SERUM-30", retailPrice: 100000, originalPrice: 120000, volume: "30ml", isActive: true });
   await db.collection("stores").insertOne({ _id: new ObjectId("000000000000000000000001"), name: "Test Store", isActive: true });
   await db.collection("inventories").insertOne({ storeId: new ObjectId("000000000000000000000001"), variantId, stockQuantity: 10, reservedQuantity: 0, version: 1 });
-  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
+  app = createApp({ db, mailer: { configured: true, async sendAuthCode({ email, purpose, code }) {
+    sentCodes.set(`${purpose}:${email}`, code);
+  } }, config: { jwtSecret: "test-secret", authCodeSecret: "test-auth-code-secret-at-least-32-chars", trustProxy: false, frontendRoot: new URL("../../", import.meta.url) } });
 });
 
 after(async () => {
-  await client?.db(dbName).dropDatabase();
-  await client?.close();
+  try {
+    for (const name of ownedCollections) {
+      await client?.db(dbName).collection(name).drop().catch((error) => {
+        if (error.code !== 26) throw error;
+      });
+    }
+  } finally {
+    await client?.close();
+  }
 });
 
 test("product search and detail return catalog data", async () => {
@@ -96,6 +125,8 @@ test("public customer registration creates a safe customer session", async () =>
     isDemo: true
   };
 
+  await agent.post("/api/auth/register/send-code").send({ email: input.email }).expect(202);
+  input.verificationCode = sentCodes.get("register:new.customer@test.local");
   const registered = await agent.post("/api/auth/register").send(input);
   assert.equal(registered.status, 201);
   assert.equal(registered.body.data.email, "new.customer@test.local");
@@ -129,12 +160,14 @@ test("customer registration validates fields and rejects duplicate email or phon
   const invalidSkinType = await agent.post("/api/auth/register").send({ email: "skin@test.local", fullName: "Skin User", password: "Secret@123", skinType: "unknown" });
   assert.equal(invalidSkinType.status, 400);
 
-  const duplicateEmail = await agent.post("/api/auth/register").send({ email: customer.email.toUpperCase(), fullName: "Duplicate", password: "Secret@123" });
+  const duplicateEmail = await agent.post("/api/auth/register").send({ email: customer.email.toUpperCase(), fullName: "Duplicate", password: "Secret@123", verificationCode: "123456" });
   assert.equal(duplicateEmail.status, 409);
   assert.equal(duplicateEmail.body.error.code, "DUPLICATE_USER");
 
-  await agent.post("/api/auth/register").send({ email: "phone-owner@test.local", fullName: "Phone Owner", phone: "0900000123", password: "Secret@123" }).expect(201);
-  const duplicatePhone = await agent.post("/api/auth/register").send({ email: "phone-copy@test.local", fullName: "Phone Copy", phone: "0900000123", password: "Secret@123" });
+  await agent.post("/api/auth/register/send-code").send({ email: "phone-owner@test.local" }).expect(202);
+  await agent.post("/api/auth/register").send({ email: "phone-owner@test.local", fullName: "Phone Owner", phone: "0900000123", password: "Secret@123", verificationCode: sentCodes.get("register:phone-owner@test.local") }).expect(201);
+  await agent.post("/api/auth/register/send-code").send({ email: "phone-copy@test.local" }).expect(202);
+  const duplicatePhone = await agent.post("/api/auth/register").send({ email: "phone-copy@test.local", fullName: "Phone Copy", phone: "0900000123", password: "Secret@123", verificationCode: sentCodes.get("register:phone-copy@test.local") });
   assert.equal(duplicatePhone.status, 409);
   assert.equal(duplicatePhone.body.error.code, "DUPLICATE_USER");
 });
