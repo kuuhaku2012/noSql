@@ -2,6 +2,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const MB = require("./app.js");
 
+test("email validation accepts trimmed addresses and rejects malformed or empty input", () => {
+  for (const email of [" belle@example.com ", "belle+shop@example.co.vn"]) assert.equal(MB.isValidEmail(email), true, email);
+  for (const email of ["", "   ", "belle@", "@example.com", "belle@example", "belle @example.com", "belle@example..com", "a".repeat(255) + "@example.com", null, undefined]) {
+    assert.equal(MB.isValidEmail(email), false, String(email));
+  }
+});
+
 test("product normalization preserves the API variant identity and demo label", () => {
   const product = MB.normalizeProduct({
     _id: "product-1",

@@ -78,6 +78,27 @@ test("API errors preserve status, code, and the server message", async () => {
   });
 });
 
+for (const [operation, path, input, expected] of [
+  ["sendRegistrationCode", "/api/auth/register/send-code", { email: "belle@example.com", password: "private", verificationCode: "123456" }, { email: "belle@example.com" }],
+  ["sendPasswordResetCode", "/api/auth/password-reset/send-code", { email: "belle@example.com", newPassword: "private" }, { email: "belle@example.com" }],
+  ["resetPassword", "/api/auth/password-reset", { email: "belle@example.com", verificationCode: "012345", newPassword: "secret1", confirmPassword: "secret1" }, { email: "belle@example.com", verificationCode: "012345", newPassword: "secret1" }],
+  ["register", "/api/auth/register", { email: "belle@example.com", fullName: "Belle", phone: "0901234567", skinType: "dry", password: "secret1", verificationCode: "012345", confirmPassword: "secret1", rememberEmail: true }, { email: "belle@example.com", fullName: "Belle", phone: "0901234567", skinType: "dry", password: "secret1", verificationCode: "012345" }]
+]) {
+  test(`auth ${operation} sends only its exact endpoint and JSON fields`, async () => {
+    let captured;
+    const api = createApi(async (url, options) => {
+      captured = { url, options };
+      return Response.json({ data: { accepted: true } }, { status: 202 });
+    });
+    await api.auth[operation](input);
+    assert.equal(captured.url, path);
+    assert.equal(captured.options.method, "POST");
+    assert.equal(captured.options.headers["Content-Type"], "application/json");
+    assert.equal(captured.options.credentials, "same-origin");
+    assert.deepEqual(JSON.parse(captured.options.body), expected);
+  });
+}
+
 test("admin product and promotion updates use the resource URLs documented by the API contract", async () => {
   const requests = [];
   const api = createApi(async (url, options) => {

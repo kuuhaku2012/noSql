@@ -252,9 +252,165 @@ test("customer login does not expose shared demo credentials or autofill", async
   assert.match(storefront, /id="login-form"/);
   assert.match(storefront, /<input\b(?=[^>]*type="checkbox")(?=[^>]*name="rememberEmail")[^>]*>/);
   assert.match(storefront, /data-forgot-password/);
-  assert.match(storefront, /đặt lại mật khẩu qua email chưa được tích hợp/i);
-  assert.equal((storefront.match(/data-password-toggle(?=\s)/g) || []).length, 3, "login, registration, and confirmation passwords need visibility controls");
+  assert.match(storefront, /id="password-reset-form"/);
+  assert.equal((storefront.match(/data-password-toggle(?=\s)/g) || []).length, 5, "all login, registration, and recovery passwords need visibility controls");
   assert.doesNotMatch(storefront, /data-fill-customer-demo|customer@maisonbelle\.local|Demo@123/);
+});
+
+// Run the real account handlers with small DOM boundary doubles; no network or SMTP.
+async function accountFixture(auth = {}) {
+  const { runInNewContext } = require("node:vm");
+  const MB = require("./app.js");
+  const timers = new Map(), events = {}, requests = [];
+  let nextTimer = 0, forms = {}, panels = {}, modes = [], html = "";
+  const control = (attrs = "") => {
+    const attributes = Object.fromEntries([...attrs.matchAll(/([\w-]+)="([^"]*)"/g)].map((match) => [match[1], match[2]]));
+    return { attributes, value: attributes.value || "", type: attributes.type, disabled: /\bdisabled\b/.test(attrs), textContent: "", listeners: {}, nativeValid: true,
+      setAttribute(key, value) { this.attributes[key] = value; }, getAttribute(key) { return this.attributes[key]; },
+      addEventListener(event, handler) { this.listeners[event] = handler; }, focus() {},
+      checkValidity() { return this.nativeValid && MB.isValidEmail(this.value); }
+    };
+  };
+  const host = {
+    listeners: {}, addEventListener(event, handler) { this.listeners[event] = handler; },
+    get innerHTML() { return html; },
+    set innerHTML(value) {
+      html = value; forms = {}; panels = {}; modes = [];
+      for (const match of value.matchAll(/<section data-auth-panel="([^"]+)"([^>]*)>/g)) panels[match[1]] = { dataset: { authPanel: match[1] }, hidden: /hidden/.test(match[2]) };
+      for (const match of value.matchAll(/<button[^>]*data-auth-mode="([^"]+)"[^>]*>/g)) modes.push(Object.assign(control(match[0]), { dataset: { authMode: match[1] } }));
+      for (const match of value.matchAll(/<form id="([^"]+)"[^>]*>([\s\S]*?)<\/form>/g)) {
+        const id = match[1], markup = match[2], elements = {};
+        for (const input of markup.matchAll(/<(?:input|select)\b([^>]*)>/g)) {
+          const element = control(input[1]);
+          if (element.attributes.name) elements[element.attributes.name] = element;
+        }
+        const send = control(markup.match(/<button([^>]*data-send-code[^>]*)>/)?.[1]);
+        const submit = control(markup.match(/<button([^>]*type="submit"[^>]*)>/)?.[1]);
+        const status = control(), feedback = control();
+        const form = { id, markup, elements, send, submit, status, feedback, listeners: {},
+          setAttribute() {}, addEventListener(event, handler) { this.listeners[event] = handler; },
+          reportValidity() { return true; },
+          closest() { return panels[id === "register-form" ? "register" : id === "password-reset-form" ? "reset" : "login"]; },
+          querySelector(selector) { return selector === "[data-send-code]" ? send : selector === "[type=submit]" ? submit : selector === "[data-email-feedback]" ? feedback : selector === ".form-message" ? status : null; },
+          querySelectorAll(selector) { return selector === "[data-password-toggle]" ? [] : Object.values(elements).filter((element) => ["password", "confirmPassword", "newPassword", "verificationCode"].includes(element.attributes.name)); }
+        };
+        forms[id] = form;
+      }
+    },
+    contains(form) { return forms[form.id] === form; },
+    querySelector(selector) {
+      if (selector.startsWith("#")) return forms[selector.slice(1)] || null;
+      if (selector.includes("data-auth-panel")) return forms[selector.includes('"register"') ? "register-form" : selector.includes('"reset"') ? "password-reset-form" : "login-form"]?.elements.email;
+      return null;
+    },
+    querySelectorAll(selector) { return selector === "[data-auth-mode]" ? modes : selector === "[data-auth-panel]" ? Object.values(panels) : Object.values(forms); }
+  };
+  const api = { data: (response) => response?.data ?? response, auth: {
+    me: async () => { throw { status: 401 }; },
+    ...Object.fromEntries(["sendRegistrationCode", "sendPasswordResetCode", "register", "resetPassword", "login"].map((operation) => [operation, async (body) => {
+      requests.push([operation, body]);
+      return auth[operation] ? auth[operation](body) : { data: { accepted: true, resendAfterSeconds: 60 } };
+    }]))
+  } };
+  runInNewContext(await readFile(join(root, "js/storefront.js"), "utf8"), {
+    document: { body: { dataset: { page: "account" }, addEventListener() {} }, querySelector: (selector) => selector === "#account-content" ? host : host.querySelector(selector), addEventListener(event, callback) { events[event] = callback; } },
+    MB: { ...MB, rememberedEmail: () => "", rememberEmail() {}, showState() {} }, MBApi: api,
+    location: { search: "", assign() {} }, URLSearchParams,
+    setInterval(callback) { timers.set(++nextTimer, callback); return nextTimer; }, clearInterval(id) { timers.delete(id); },
+    addEventListener(event, callback) { events[event] = callback; }
+  });
+  events.DOMContentLoaded();
+  await new Promise(setImmediate);
+  return { host, timers, events, requests, get forms() { return forms; }, get panels() { return panels; },
+    async mode(mode) {
+      const target = { dataset: { authMode: mode }, closest: (selector) => selector === "[data-auth-mode]" ? target : null };
+      await host.listeners.click({ target });
+    },
+    async forgot() {
+      const target = { closest: (selector) => selector === "[data-forgot-password]" ? target : null, setAttribute() {} };
+      await host.listeners.click({ target });
+    },
+    email(form, value, nativeValid = true) { form.elements.email.value = value; form.elements.email.nativeValid = nativeValid; form.elements.email.listeners.input(); },
+    submit(form) { return form.listeners.submit({ currentTarget: form, preventDefault() {} }); }
+  };
+}
+
+test("account forms expose email, six-digit codes, live status, and accessible passwords", async () => {
+  const fixture = await accountFixture();
+  for (const id of ["login-form", "register-form", "password-reset-form"]) {
+    const markup = fixture.forms[id]?.markup || "";
+    assert.equal((markup.match(/type="email"/g) || []).length, 1, id);
+    assert.match(markup, /role="status" aria-live="polite"/);
+    if (id !== "login-form") {
+      assert.match(markup, /<input(?=[^>]*name="verificationCode")(?=[^>]*inputmode="numeric")(?=[^>]*maxlength="6")(?=[^>]*pattern="\[0-9\]\{6\}")[^>]*>/);
+      assert.match(markup, /<button(?=[^>]*data-send-code)(?=[^>]*disabled)[^>]*>/);
+      assert.match(markup, /aria-describedby="[^"]+-email-feedback"/);
+    }
+  }
+});
+
+for (const [mode, id, operation] of [["register", "register-form", "sendRegistrationCode"], ["reset", "password-reset-form", "sendPasswordResetCode"]]) {
+  test(`${mode} code requests require both validators and start cooldown only after acceptance`, async () => {
+    let accept;
+    const fixture = await accountFixture({ [operation]: () => new Promise((resolve) => { accept = resolve; }) });
+    await fixture.mode(mode);
+    const form = fixture.forms[id];
+    fixture.email(form, "belle@"); assert.equal(form.send.disabled, true);
+    assert.equal(form.elements.email.getAttribute("aria-invalid"), "true");
+    fixture.email(form, "belle@example.com", false); assert.equal(form.send.disabled, true);
+    fixture.email(form, " belle@example.com "); assert.equal(form.send.disabled, false);
+    const pending = form.send.listeners.click();
+    assert.equal(form.send.disabled, true); assert.equal(form.submit.disabled, true); assert.equal(fixture.timers.size, 0);
+    await form.send.listeners.click(); assert.equal(fixture.requests.length, 1);
+    accept({ data: { accepted: true, resendAfterSeconds: 60 } }); await pending;
+    assert.deepEqual(JSON.parse(JSON.stringify(fixture.requests)), [[operation, { email: "belle@example.com" }]]);
+    assert.equal(fixture.timers.size, 1); assert.match(form.send.textContent, /60/);
+    if (mode === "reset") { assert.match(form.status.textContent, /Nếu email đã đăng ký/); assert.doesNotMatch(form.status.textContent, /đã gửi|đã nhận mã/i); }
+    const tick = [...fixture.timers.values()][0]; tick(); assert.match(form.send.textContent, /59/);
+    for (let i = 0; i < 59; i++) tick();
+    assert.equal(form.send.disabled, false); assert.equal(fixture.timers.size, 0);
+    await fixture.mode("login"); assert.equal(fixture.timers.size, 0);
+  });
+}
+
+test("send failures display in the requesting form without starting a timer", async () => {
+  const fixture = await accountFixture({ sendRegistrationCode: async () => { throw { code: "EMAIL_NOT_CONFIGURED", message: "Email delivery is not configured" }; } });
+  await fixture.mode("register"); const form = fixture.forms["register-form"];
+  fixture.email(form, "belle@example.com"); await form.send.listeners.click();
+  assert.match(form.status.textContent, /Email delivery is not configured/);
+  assert.equal(fixture.timers.size, 0); assert.equal(form.send.disabled, false);
+  assert.equal(fixture.forms["password-reset-form"].status.textContent, "");
+});
+
+test("closing recovery clears timers and secrets; late acceptance cannot restart them", async () => {
+  let accept;
+  const fixture = await accountFixture({ sendPasswordResetCode: () => new Promise((resolve) => { accept = resolve; }) });
+  await fixture.forgot(); const form = fixture.forms["password-reset-form"];
+  assert.equal(fixture.panels.reset.hidden, false);
+  fixture.email(form, "belle@example.com"); const pending = form.send.listeners.click();
+  form.elements.verificationCode.value = "012345"; form.elements.newPassword.value = "secret1";
+  await fixture.mode("login"); accept({ data: { accepted: true } }); await pending;
+  assert.equal(fixture.timers.size, 0); assert.equal(form.elements.verificationCode.value, ""); assert.equal(form.elements.newPassword.value, "");
+  await fixture.mode("reset");
+  const second = form.send.listeners.click(); accept({ data: { accepted: true } }); await second;
+  assert.equal(fixture.timers.size, 1); await fixture.mode("login"); assert.equal(fixture.timers.size, 0);
+});
+
+test("registration submits its code and recovery rejects mismatch then returns to login without logging in", async () => {
+  const fixture = await accountFixture({ register: async () => { throw { message: "registration fixture" }; } });
+  await fixture.mode("register"); const registration = fixture.forms["register-form"];
+  Object.entries({ email: "belle@example.com", fullName: " Belle ", phone: "0901234567", skinType: "dry", password: "secret1", confirmPassword: "secret1", verificationCode: "012345" }).forEach(([name, value]) => { registration.elements[name].value = value; });
+  await fixture.submit(registration);
+  assert.deepEqual(JSON.parse(JSON.stringify(fixture.requests[0])), ["register", { email: "belle@example.com", fullName: "Belle", phone: "0901234567", skinType: "dry", password: "secret1", verificationCode: "012345" }]);
+  await fixture.mode("reset"); const form = fixture.forms["password-reset-form"];
+  Object.entries({ email: " belle@example.com ", verificationCode: "012345", newPassword: "secret1", confirmPassword: "different" }).forEach(([name, value]) => { form.elements[name].value = value; });
+  await fixture.submit(form); assert.equal(fixture.requests.length, 1); assert.match(form.status.textContent, /chưa khớp/);
+  form.elements.confirmPassword.value = "secret1"; await fixture.submit(form);
+  assert.deepEqual(JSON.parse(JSON.stringify(fixture.requests[1])), ["resetPassword", { email: "belle@example.com", verificationCode: "012345", newPassword: "secret1" }]);
+  assert.equal(fixture.panels.login.hidden, false); assert.equal(fixture.panels.reset.hidden, true);
+  assert.match(fixture.forms["login-form"].status.textContent, /Đặt lại mật khẩu thành công/);
+  assert.equal(fixture.requests.some(([operation]) => operation === "login"), false);
+  assert.equal(fixture.timers.size, 0);
 });
 
 test("staff login redirects to the dedicated admin page", async () => {

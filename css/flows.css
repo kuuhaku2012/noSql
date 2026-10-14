@@ -181,6 +181,11 @@ html[data-theme="dark"] .image-pending, html[data-theme="dark"] .cart-thumb { co
 .account-glass .form-grid .field input:focus-visible, .account-glass .form-grid .field select:focus-visible { border-color: var(--rose); background: #fff; box-shadow: 0 0 0 4px rgba(190,103,117,.12); }
 .account-glass .form-grid small, .optional { color: var(--muted); font-size: 11px; font-weight: 400; }
 .account-glass .form-grid .btn { min-height: 48px; }
+.email-code-control { display: flex; align-items: stretch; gap: 10px; }
+.email-code-control input { flex: 1; min-width: 0; }
+.email-code-control [data-send-code] { flex: 0 0 auto; min-height: 50px; padding: 10px 14px; white-space: nowrap; }
+.account-glass button:disabled { opacity: .55; cursor: not-allowed; }
+.account-glass input[aria-invalid="true"] { border-color: var(--rose); }
 .auth-options { display: flex; grid-column: 1 / -1; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid rgba(125,57,66,.14); border-radius: 14px; color: var(--muted); background: rgba(255,255,255,.42); font-size: 12px; }
 .auth-remember { display: inline-flex; min-height: 24px; flex: 1 1 190px; align-items: center; gap: 9px; cursor: pointer; line-height: 1.45; }
 .auth-remember input { width: 17px; min-width: 17px; min-height: 17px !important; margin: 0; accent-color: var(--rose); }
@@ -216,6 +221,7 @@ html[data-theme="dark"] .auth-help-note { border-color: rgba(255,255,255,.12); b
 }
 @media (max-width: 520px) {
   .auth-options { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .email-code-control { flex-direction: column; }
 }
 @media (max-width: 980px) {
   .account-auth { grid-template-columns: 1fr; }

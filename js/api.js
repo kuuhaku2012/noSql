@@ -71,7 +71,10 @@
       product: (id) => get(idPath("/api/products", id)),
       auth: {
         login: (body) => send("POST", "/api/auth/login", body),
-        register: (body) => send("POST", "/api/auth/register", body),
+        register: ({ email, fullName, phone, skinType, password, verificationCode }) => send("POST", "/api/auth/register", { email, fullName, phone, skinType, password, verificationCode }),
+        sendRegistrationCode: ({ email }) => send("POST", "/api/auth/register/send-code", { email }),
+        sendPasswordResetCode: ({ email }) => send("POST", "/api/auth/password-reset/send-code", { email }),
+        resetPassword: ({ email, verificationCode, newPassword }) => send("POST", "/api/auth/password-reset", { email, verificationCode, newPassword }),
         me: () => get("/api/auth/me"),
         logout: () => send("POST", "/api/auth/logout", {})
       },

@@ -83,6 +83,10 @@
 
   const MB = {
     escape,
+    isValidEmail(value) {
+      const email = String(value ?? "").trim();
+      return email.length <= 254 && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email);
+    },
     normalizeProduct,
     togglePasswordControl,
     _guestCartMode: false,

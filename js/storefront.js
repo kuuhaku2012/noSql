@@ -468,15 +468,42 @@
   async function accountPage() {
     const host = $("#account-content");
     if (!host) return;
+    let authFlows = [];
+    function closeAuthForms() {
+      authFlows.forEach((flow) => flow.close());
+      authFlows = [];
+    }
+    globalThis.addEventListener?.("pagehide", () => authFlows.forEach((flow) => flow.close()));
+    function setAuthMode(active) {
+      host.querySelectorAll("[data-auth-panel]").forEach((panel) => {
+        if (panel.dataset.authPanel !== active && !panel.hidden) {
+          authFlows.filter((flow) => flow.panel === panel).forEach((flow) => flow.close());
+          panel.querySelectorAll?.('input[type="password"], input[name="verificationCode"], .password-control input').forEach((input) => {
+            input.value = "";
+            if (input.name !== "verificationCode") input.type = "password";
+          });
+          panel.querySelectorAll?.("[data-password-toggle]").forEach((button) => {
+            button.textContent = "Hiện";
+            button.setAttribute("aria-label", "Hiện mật khẩu");
+            button.setAttribute("aria-pressed", "false");
+          });
+        }
+        panel.hidden = panel.dataset.authPanel !== active;
+      });
+      host.querySelectorAll("[data-auth-mode]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.authMode === active)));
+      host.querySelector(`[data-auth-panel="${active}"] input`)?.focus();
+    }
     function loginForm(message = new URLSearchParams(location.search).get("next") === "checkout"
       ? "Đăng nhập để tiếp tục đặt hàng. Giỏ hàng của bạn đã được lưu."
       : "Đăng nhập để quản lý đơn hàng, hồ sơ và địa chỉ.") {
+      closeAuthForms();
       const rememberedEmail = MB.rememberedEmail();
       host.innerHTML = `<section class="account-auth">
         <aside class="account-story"><span class="eyebrow">MAISON BELLE · CHĂM SÓC CÓ CHỦ ĐÍCH</span><h1>Một nghi thức nhỏ.<br><em>Một làn da được lắng nghe.</em></h1><p>Tìm sản phẩm phù hợp, lưu lại hành trình đơn hàng và kết nối với đội ngũ tư vấn của Maison Belle.</p><div class="story-points"><span>01 <b>Tuyển chọn theo nhu cầu</b></span><span>02 <b>Lịch sử mua sắm rõ ràng</b></span><span>03 <b>Tư vấn chăm sóc cá nhân</b></span></div><small>BEAUTY, WITH INTENTION</small></aside>
         <div class="account-glass"><div class="auth-switch" role="group" aria-label="Chọn hình thức tài khoản"><button type="button" data-auth-mode="login" aria-pressed="true">Đăng nhập</button><button type="button" data-auth-mode="register" aria-pressed="false">Tạo tài khoản</button></div>
-          <section data-auth-panel="login"><span class="eyebrow">MAISON BELLE · TÀI KHOẢN</span><h2>Chào mừng bạn trở lại.</h2><p>${esc(message)}</p><form id="login-form" class="form-grid"><label class="field">Email<input type="email" name="email" value="${esc(rememberedEmail)}" maxlength="254" required autocomplete="username"></label><div class="field"><label for="login-password">Mật khẩu</label><div class="password-control"><input id="login-password" type="password" name="password" required autocomplete="current-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div></div><div class="auth-options"><label class="auth-remember"><input type="checkbox" name="rememberEmail" ${rememberedEmail ? "checked" : ""}> Ghi nhớ email trên thiết bị này</label><button class="auth-forgot" type="button" data-forgot-password aria-expanded="false" aria-controls="forgot-password-note">Quên mật khẩu?</button></div><p class="auth-help-note" id="forgot-password-note" data-forgot-note role="status" hidden>Đặt lại mật khẩu qua email chưa được tích hợp. Vui lòng liên hệ cửa hàng để được hỗ trợ.</p><button class="btn" type="submit">ĐĂNG NHẬP</button><p class="form-message" role="status"></p></form></section>
-          <section data-auth-panel="register" hidden><span class="eyebrow">BẮT ĐẦU HÀNH TRÌNH CỦA BẠN</span><h2>Tạo tài khoản Maison Belle.</h2><p>Thông tin của bạn được gửi trực tiếp đến hệ thống cửa hàng.</p><form id="register-form" class="form-grid"><label class="field">Họ và tên<input name="fullName" required maxlength="160" autocomplete="name"></label><label class="field">Số điện thoại<input type="tel" name="phone" required maxlength="30" autocomplete="tel" inputmode="tel"></label><label class="field">Email<input type="email" name="email" required maxlength="254" autocomplete="email"></label><label class="field">Loại da <span class="optional">(không bắt buộc)</span><select name="skinType"><option value="">Chọn sau</option><option value="oily">Da dầu</option><option value="dry">Da khô</option><option value="sensitive">Da nhạy cảm</option><option value="combination">Da hỗn hợp</option><option value="normal">Da thường</option></select></label><div class="field"><label for="register-password">Mật khẩu</label><div class="password-control"><input id="register-password" type="password" name="password" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div><small>Tối thiểu 6 ký tự.</small></div><div class="field"><label for="register-confirm-password">Nhập lại mật khẩu</label><div class="password-control"><input id="register-confirm-password" type="password" name="confirmPassword" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div></div><button class="btn" type="submit">TẠO TÀI KHOẢN</button><p class="form-message" role="status" aria-live="polite"></p></form><small>Hiện chưa hỗ trợ xác minh OTP qua email hoặc SMS.</small></section>
+          <section data-auth-panel="login"><span class="eyebrow">MAISON BELLE · TÀI KHOẢN</span><h2>Chào mừng bạn trở lại.</h2><p>${esc(message)}</p><form id="login-form" class="form-grid"><label class="field">Email<input type="email" name="email" value="${esc(rememberedEmail)}" maxlength="254" required autocomplete="username"></label><div class="field"><label for="login-password">Mật khẩu</label><div class="password-control"><input id="login-password" type="password" name="password" required autocomplete="current-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div></div><div class="auth-options"><label class="auth-remember"><input type="checkbox" name="rememberEmail" ${rememberedEmail ? "checked" : ""}> Ghi nhớ email trên thiết bị này</label><button class="auth-forgot" type="button" data-forgot-password aria-controls="password-reset-panel">Quên mật khẩu?</button></div><button class="btn" type="submit">ĐĂNG NHẬP</button><p class="form-message" role="status" aria-live="polite"></p></form></section>
+          <section data-auth-panel="register" hidden><span class="eyebrow">BẮT ĐẦU HÀNH TRÌNH CỦA BẠN</span><h2>Tạo tài khoản Maison Belle.</h2><p>Nhập email và yêu cầu mã xác minh trước khi tạo tài khoản.</p><form id="register-form" class="form-grid"><label class="field">Họ và tên<input name="fullName" required maxlength="160" autocomplete="name"></label><label class="field">Số điện thoại<input type="tel" name="phone" required maxlength="30" autocomplete="tel" inputmode="tel"></label><div class="field"><label for="register-email">Email</label><div class="email-code-control"><input id="register-email" type="email" name="email" required maxlength="254" autocomplete="email" aria-describedby="register-email-feedback"><button class="outline" type="button" data-send-code disabled>GỬI MÃ</button></div><small id="register-email-feedback" data-email-feedback role="status" aria-live="polite"></small></div><label class="field">Mã xác minh<input type="text" name="verificationCode" required inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code"><small>Nhập mã gồm 6 chữ số.</small></label><label class="field">Loại da <span class="optional">(không bắt buộc)</span><select name="skinType"><option value="">Chọn sau</option><option value="oily">Da dầu</option><option value="dry">Da khô</option><option value="sensitive">Da nhạy cảm</option><option value="combination">Da hỗn hợp</option><option value="normal">Da thường</option></select></label><div class="field"><label for="register-password">Mật khẩu</label><div class="password-control"><input id="register-password" type="password" name="password" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div><small>Tối thiểu 6 ký tự.</small></div><div class="field"><label for="register-confirm-password">Nhập lại mật khẩu</label><div class="password-control"><input id="register-confirm-password" type="password" name="confirmPassword" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div></div><button class="btn" type="submit">TẠO TÀI KHOẢN</button><p class="form-message" role="status" aria-live="polite"></p></form></section>
+          <section data-auth-panel="reset" id="password-reset-panel" hidden><span class="eyebrow">KHÔI PHỤC TÀI KHOẢN</span><h2>Đặt lại mật khẩu.</h2><p>Yêu cầu mã xác minh cho email tài khoản của bạn.</p><form id="password-reset-form" class="form-grid"><div class="field"><label for="reset-email">Email</label><div class="email-code-control"><input id="reset-email" type="email" name="email" required maxlength="254" autocomplete="email" aria-describedby="reset-email-feedback"><button class="outline" type="button" data-send-code disabled>GỬI MÃ</button></div><small id="reset-email-feedback" data-email-feedback role="status" aria-live="polite"></small></div><label class="field">Mã xác minh<input type="text" name="verificationCode" required inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code"><small>Nhập mã gồm 6 chữ số.</small></label><div class="field"><label for="reset-password">Mật khẩu mới</label><div class="password-control"><input id="reset-password" type="password" name="newPassword" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div><small>Tối thiểu 6 ký tự.</small></div><div class="field"><label for="reset-confirm-password">Nhập lại mật khẩu mới</label><div class="password-control"><input id="reset-confirm-password" type="password" name="confirmPassword" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div></div><button class="btn" type="submit">ĐẶT LẠI MẬT KHẨU</button><p class="form-message" role="status" aria-live="polite"></p><button class="textlink" type="button" data-auth-mode="login">Quay lại đăng nhập</button></form></section>
         </div>
       </section>`;
       $("#login-form").addEventListener("submit", async (event) => {
@@ -509,34 +536,119 @@
         } catch (error) { messageEl.textContent = MB.errorMessage(error); }
         finally { submit.disabled = false; }
       });
-      $("#register-form").addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const message = $(".form-message", form);
+      function bindEmailCodeForm(form, recovery) {
+        const panel = form.closest("[data-auth-panel]");
+        const email = form.elements.email;
+        const sendCode = form.querySelector("[data-send-code]");
         const submit = form.querySelector("[type=submit]");
-        const values = Object.fromEntries(new FormData(form).entries());
-        if (values.password !== values.confirmPassword) { message.textContent = "Mật khẩu nhập lại chưa khớp."; return; }
-        submit.disabled = true;
-        message.textContent = "Đang tạo tài khoản…";
-        try {
-          await MBApi.auth.register({
-            email: values.email.trim(), fullName: values.fullName.trim(), phone: values.phone.trim(),
-            password: values.password, skinType: values.skinType
-          });
-          if (new URLSearchParams(location.search).get("next") === "checkout") {
-            location.assign("cart.html?checkout=1");
-            return;
+        const status = form.querySelector(".form-message");
+        const feedback = form.querySelector("[data-email-feedback]");
+        let sending = false, submitting = false, secondsRemaining = 0, timer = null, generation = 0;
+        const validEmail = () => MB.isValidEmail(email.value) && email.checkValidity();
+        const active = (requestGeneration) => generation === requestGeneration && host.contains(form) && !panel.hidden;
+        function update() {
+          const valid = validEmail();
+          const invalid = email.value.length > 0 && !valid;
+          email.setAttribute("aria-invalid", String(invalid));
+          feedback.textContent = invalid ? "Vui lòng nhập email hợp lệ." : "";
+          sendCode.disabled = !valid || sending || submitting || secondsRemaining > 0;
+          submit.disabled = sending || submitting;
+          email.readOnly = sending || submitting;
+          form.setAttribute("aria-busy", String(sending || submitting));
+          sendCode.textContent = sending ? "ĐANG YÊU CẦU…" : secondsRemaining > 0 ? `GỬI LẠI SAU ${secondsRemaining}s` : "GỬI MÃ";
+        }
+        function clearTimer() {
+          if (timer !== null) clearInterval(timer);
+          timer = null;
+          secondsRemaining = 0;
+        }
+        const flow = { panel, close() {
+          generation++;
+          clearTimer();
+          sending = submitting = false;
+          form.elements.verificationCode.value = "";
+          form.elements[recovery ? "newPassword" : "password"].value = "";
+          form.elements.confirmPassword.value = "";
+          status.textContent = "";
+          update();
+        } };
+        authFlows.push(flow);
+        email.addEventListener("input", () => {
+          form.elements.verificationCode.value = "";
+          if (!sending && !submitting) status.textContent = "";
+          update();
+        });
+        sendCode.addEventListener("click", async () => {
+          if (!active(generation) || !validEmail() || sending || submitting || secondsRemaining > 0) return;
+          const requestGeneration = generation;
+          sending = true;
+          status.textContent = "Đang yêu cầu mã xác minh…";
+          update();
+          try {
+            await (recovery ? MBApi.auth.sendPasswordResetCode : MBApi.auth.sendRegistrationCode)({ email: email.value.trim() });
+            if (!active(requestGeneration)) return;
+            status.textContent = recovery
+              ? "Nếu email đã đăng ký, yêu cầu đã được tiếp nhận. Nếu chưa nhận mã, hãy thử lại sau khi hết thời gian chờ."
+              : "Yêu cầu mã xác minh đã được tiếp nhận. Kiểm tra email của bạn; nếu chưa nhận mã, hãy thử lại sau khi hết thời gian chờ.";
+            secondsRemaining = 60;
+            timer = setInterval(() => {
+              if (!active(requestGeneration)) { clearTimer(); return; }
+              secondsRemaining--;
+              if (secondsRemaining <= 0) clearTimer();
+              update();
+            }, 1000);
+          } catch (error) {
+            if (active(requestGeneration)) status.textContent = MB.errorMessage(error);
+          } finally {
+            if (active(requestGeneration)) { sending = false; update(); }
           }
-          if (new URLSearchParams(location.search).get("next") === "consultation") {
-            location.assign("consultation.html");
-            return;
+        });
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          if (!active(generation) || sending || submitting || !form.reportValidity() || !validEmail()) return;
+          if (!/^[0-9]{6}$/.test(form.elements.verificationCode.value)) { status.textContent = "Nhập mã xác minh gồm 6 chữ số."; return; }
+          if (form.elements[recovery ? "newPassword" : "password"].value !== form.elements.confirmPassword.value) { status.textContent = "Mật khẩu nhập lại chưa khớp."; return; }
+          const requestGeneration = generation;
+          submitting = true;
+          status.textContent = recovery ? "Đang đặt lại mật khẩu…" : "Đang tạo tài khoản…";
+          update();
+          try {
+            if (recovery) {
+              await MBApi.auth.resetPassword({ email: email.value.trim(), verificationCode: form.elements.verificationCode.value, newPassword: form.elements.newPassword.value });
+              if (!active(requestGeneration)) return;
+              loginForm();
+              $(".form-message", $("#login-form")).textContent = "Đặt lại mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới.";
+              $("#login-form").elements.email.focus();
+              return;
+            }
+            await MBApi.auth.register({
+              email: email.value.trim(), fullName: form.elements.fullName.value.trim(), phone: form.elements.phone.value.trim(),
+              password: form.elements.password.value, skinType: form.elements.skinType.value, verificationCode: form.elements.verificationCode.value
+            });
+            if (!active(requestGeneration)) return;
+            closeAuthForms();
+            if (new URLSearchParams(location.search).get("next") === "checkout") {
+              location.assign("cart.html?checkout=1");
+              return;
+            }
+            if (new URLSearchParams(location.search).get("next") === "consultation") {
+              location.assign("consultation.html");
+              return;
+            }
+            await load();
+          } catch (error) {
+            if (active(requestGeneration)) status.textContent = MB.errorMessage(error);
+          } finally {
+            if (active(requestGeneration)) { submitting = false; update(); }
           }
-          await load();
-        } catch (error) { message.textContent = MB.errorMessage(error); }
-        finally { submit.disabled = false; }
-      });
+        });
+        update();
+      }
+      bindEmailCodeForm($("#register-form"), false);
+      bindEmailCodeForm($("#password-reset-form"), true);
     }
     async function load() {
+      closeAuthForms();
       MB.showState(host, "loading", "Đang kiểm tra phiên đăng nhập…");
       try {
         const user = responseData(await MBApi.auth.me()) || {};
@@ -575,19 +687,12 @@
     host.addEventListener("click", async (event) => {
       const forgotPassword = event.target.closest("[data-forgot-password]");
       if (forgotPassword) {
-        const note = host.querySelector("[data-forgot-note]");
-        if (note) {
-          note.hidden = !note.hidden;
-          forgotPassword.setAttribute("aria-expanded", String(!note.hidden));
-        }
+        setAuthMode("reset");
         return;
       }
       const authMode = event.target.closest("[data-auth-mode]");
       if (authMode) {
-        const active = authMode.dataset.authMode;
-        host.querySelectorAll("[data-auth-mode]").forEach((button) => button.setAttribute("aria-pressed", String(button === authMode)));
-        host.querySelectorAll("[data-auth-panel]").forEach((panel) => { panel.hidden = panel.dataset.authPanel !== active; });
-        host.querySelector(`[data-auth-panel="${active}"] input`)?.focus();
+        setAuthMode(authMode.dataset.authMode);
         return;
       }
       const detailButton = event.target.closest("[data-order-detail]");
