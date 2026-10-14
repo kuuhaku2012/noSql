@@ -209,6 +209,74 @@ test("a stale sender cannot overwrite a newer challenge after reserving first", 
   assert.equal(await second.consumeCode({ email, purpose: "register", code: secondCode }), true);
 });
 
+test("failed delivery cannot leave an older code consumable while a newer sender is paused", async () => {
+  const email = "stale-delivery-failure@test.local";
+  let olderCode;
+  let releaseOlderDelivery;
+  let enteredOlderDelivery;
+  const olderDeliveryEntered = new Promise((resolve) => { enteredOlderDelivery = resolve; });
+  const olderDeliveryGate = new Promise((resolve) => { releaseOlderDelivery = resolve; });
+  const olderMailer = { configured: true, sendAuthCode: async ({ code }) => {
+    olderCode = code;
+    enteredOlderDelivery();
+    await olderDeliveryGate;
+    throw new Error("fake older delivery failure");
+  } };
+  let newerCode;
+  const newerMailer = { configured: true, sendAuthCode: async ({ code }) => { newerCode = code; } };
+  const f = await makeFixture({ email, mailer: olderMailer });
+
+  let releaseNewerReplacement;
+  let enteredNewerReplacement;
+  const newerReplacementReached = new Promise((resolve) => { enteredNewerReplacement = resolve; });
+  const newerReplacementGate = new Promise((resolve) => { releaseNewerReplacement = resolve; });
+  const challengeId = `challenge:register:${email}`;
+  let pausedNewerReplacement = false;
+  const pausedDb = {
+    collection(name) {
+      const collection = db.collection(name);
+      if (name !== "auth_email_verifications") return collection;
+      return new Proxy(collection, {
+        get(target, property) {
+          if (property === "updateOne") return async (filter, update, ...args) => {
+            if (!pausedNewerReplacement && filter?._id === challengeId && update?.$set?.codeHash) {
+              pausedNewerReplacement = true;
+              enteredNewerReplacement();
+              await newerReplacementGate;
+            }
+            return target.updateOne(filter, update, ...args);
+          };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    }
+  };
+  const newer = createAuthEmailCodeService({ db: pausedDb, mailer: newerMailer, secret, now: f.now });
+  const olderSend = f.service.sendCode({ email, purpose: "register" });
+  let newerSend;
+
+  try {
+    await olderDeliveryEntered;
+    f.setNow(new Date(f.now().getTime() + 60_000));
+    newerSend = newer.sendCode({ email, purpose: "register" });
+    await newerReplacementReached;
+    assert.equal((await db.collection("auth_email_verifications").findOne({ _id: `send-window:${email}` })).issuanceGenerations.register, 2);
+
+    releaseOlderDelivery();
+    await assert.rejects(olderSend, (error) => error.code === "EMAIL_DELIVERY_FAILED");
+    await assert.rejects(f.service.consumeCode({ email, purpose: "register", code: olderCode }), invalid);
+
+    releaseNewerReplacement();
+    await newerSend;
+    assert.equal(await newer.consumeCode({ email, purpose: "register", code: newerCode }), true);
+  } finally {
+    releaseOlderDelivery();
+    releaseNewerReplacement();
+    await Promise.allSettled([olderSend, newerSend].filter(Boolean));
+  }
+});
+
 test("failed mail delivery expires its challenge and retains the cooldown", async () => {
   let code;
   const f = await makeFixture({ email: "mail-failure@test.local", mailer: { configured: true, sendAuthCode: async (message) => {

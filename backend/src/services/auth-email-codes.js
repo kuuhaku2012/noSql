@@ -89,12 +89,12 @@ export function createAuthEmailCodeService({ db, mailer, secret, now = () => new
     }, { upsert: true });
     if (!await isCurrentReservation(key.email, key.purpose, issuanceGeneration)) throw supersededCodeError();
     const replacement = await codes.updateOne({ _id: challengeId, issuanceGeneration }, {
-      $set: { ...key, codeHash, attempts: 0, codeExpiresAt: expiresAt, purgeAt: new Date(time.getTime() + 24 * HOUR) },
+      $set: { ...key, codeHash, codeGeneration: issuanceGeneration, attempts: 0, codeExpiresAt: expiresAt, purgeAt: new Date(time.getTime() + 24 * HOUR) },
       $unset: { usedAt: "" }
     });
     if (replacement.matchedCount !== 1) throw supersededCodeError();
     if (!await isCurrentReservation(key.email, key.purpose, issuanceGeneration)) {
-      await codes.updateOne({ _id: challengeId, issuanceGeneration, codeHash, codeExpiresAt: expiresAt }, { $set: { codeExpiresAt: now() } });
+      await codes.updateOne({ _id: challengeId, codeGeneration: issuanceGeneration, codeHash, codeExpiresAt: expiresAt }, { $set: { codeExpiresAt: now() } });
       throw supersededCodeError();
     }
     try {
@@ -102,7 +102,7 @@ export function createAuthEmailCodeService({ db, mailer, secret, now = () => new
       await mailer.sendAuthCode({ ...key, to: key.email, code, expiresAt });
     } catch {
       // Do not expire a newer challenge if a slow, older delivery fails.
-      await codes.updateOne({ _id: challengeId, issuanceGeneration, codeHash, codeExpiresAt: expiresAt }, { $set: { codeExpiresAt: now() } });
+      await codes.updateOne({ _id: challengeId, codeGeneration: issuanceGeneration, codeHash, codeExpiresAt: expiresAt }, { $set: { codeExpiresAt: now() } });
       throw new HttpError(503, "EMAIL_DELIVERY_FAILED", "Email could not be sent. Please try again later.");
     }
     return { expiresAt };
