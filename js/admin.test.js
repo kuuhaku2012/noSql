@@ -5,7 +5,7 @@ const { join } = require("node:path");
 const { runInNewContext } = require("node:vm");
 const { createApi } = require("./api.js");
 const MB = require("./app.js");
-const { canAccess, defaultView, pickRole, reportFields, reportSummaryEntries, formatReportDate, dashboardMetrics, reportChartData, crudActionPayload, rowActions, actionPopoverPosition } = require("./admin.js");
+const { canAccess, defaultView, headerActionFor, pickRole, reportFields, reportSummaryEntries, formatReportDate, dashboardMetrics, reportChartData, crudActionPayload, rowActions, actionPopoverPosition } = require("./admin.js");
 
 async function shippingRatePage(role = "manager", rates = [], failure = null) {
   const requests = [], events = {}, messages = [], states = [];
@@ -14,7 +14,7 @@ async function shippingRatePage(role = "manager", rates = [], failure = null) {
     querySelector: () => null, querySelectorAll: () => [],
     addEventListener: (name, handler) => { events[name] = handler; }
   };
-  const nav = { dataset: { navView: "master-data" }, classList: { toggle() {} }, setAttribute() {}, removeAttribute() {} };
+  const nav = { dataset: { navView: "master-data" }, style: { display: "" }, classList: { toggle() {} }, setAttribute() {}, removeAttribute() {} };
   let confirmed = true, confirmations = 0;
   const api = createApi(async (url, options) => {
     const body = options.body === undefined ? undefined : JSON.parse(options.body);
@@ -60,6 +60,7 @@ test("shipping-rate master-data access is manager-only", async () => {
   for (const role of ["sales", "warehouse"]) {
     const page = await shippingRatePage(role);
     assert.equal(page.nav.hidden, true);
+    assert.equal(page.nav.style.display, "none");
     assert.deepEqual(page.states, ["forbidden"]);
     assert.doesNotMatch(page.host.innerHTML, /data-admin-action="create-shipping-rate"/);
     assert.deepEqual(page.requests.map(([url]) => url), ["/api/auth/me"]);
@@ -72,6 +73,7 @@ test("shipping-rate manager panel renders demo VND fields, escaped rates and edi
     { id: "rate-2", regionCode: "other-demo", regionName: "Khác", fee: 0, isActive: false, isDemo: true }
   ]);
   assert.equal(page.nav.hidden, false);
+  assert.equal(page.nav.style.display, "");
   assert.ok(page.requests.some(([url]) => url === "/api/admin/shipping-rates"));
   assert.match(page.host.innerHTML, /data-admin-action="create-shipping-rate"/);
   assert.match(page.host.innerHTML, /data-admin-action="update-shipping-rate"/);
@@ -134,12 +136,28 @@ test("admin sidebar hides the reports menu item", async () => {
   assert.doesNotMatch(source, /<span class="side-link-label">Báo cáo<\/span>/);
 });
 
-test("home intro uses a full-bleed blurred image with a readable overlay", async () => {
+test("home intro keeps the subject sharp while blurring the image seam into the copy", async () => {
   const source = await readFile(join(__dirname, "..", "css", "atelier.css"), "utf8");
   assert.match(source, /\.hero-visual \{[\s\S]*?position: absolute;[\s\S]*?inset: 0;/);
-  assert.match(source, /\.hero-visual img \{[\s\S]*?filter: blur\(2px\)/);
+  const imageRule = source.match(/\.hero-visual img \{([^}]*)\}/);
+  assert.ok(imageRule, "hero image keeps an explicit styling rule");
+  assert.doesNotMatch(imageRule[1], /filter:[^;]*blur\(/, "the product image itself must stay sharp");
+  const seamRule = source.match(/\.hero-visual::before \{([^}]*)\}/);
+  assert.ok(seamRule, "a separate overlay blends the image seam");
+  assert.match(seamRule[1], /backdrop-filter:\s*blur\(6px\)/);
+  assert.match(seamRule[1], /mask-image:\s*linear-gradient\(90deg/);
   assert.match(source, /\.hero-visual::after \{[\s\S]*?inset: 0;[\s\S]*?background: linear-gradient/);
   assert.match(source, /\.hero-copy \{[\s\S]*?min-height: 640px;/);
+});
+
+test("admin analytics grids stack into one column below 980px", async () => {
+  const source = await readFile(join(__dirname, "..", "css", "theme.css"), "utf8");
+  const baseRule = source.indexOf(".admin .admin-analytics-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));");
+  const responsiveBlock = source.lastIndexOf("@media (max-width: 980px)");
+  const responsiveRule = source.indexOf(".admin .admin-analytics-grid { grid-template-columns: minmax(0, 1fr);", responsiveBlock);
+  assert.ok(baseRule >= 0, "analytics grid has its two-column desktop layout");
+  assert.ok(responsiveBlock > baseRule, "responsive override comes after the desktop rule");
+  assert.ok(responsiveRule > responsiveBlock, "tablet layout overrides the two-column grid");
 });
 
 test("report chart data keeps a visible summary bar when the API has no series rows", () => {
@@ -198,8 +216,8 @@ test("admin CRUD views expose soft-delete actions with confirmation", async () =
   const source = await readFile(join(__dirname, "admin.js"), "utf8");
   for (const action of ["remove-product", "remove-promotion", "remove-voucher", "remove-catalog"]) assert.match(source, new RegExp(action));
   assert.doesNotMatch(source, /XÓA MỀM/);
-  assert.match(source, /remove-promotion[^\n]*XÓA/);
-  assert.match(source, /confirm\(/);
+  assert.match(source, /remove-promotion[^\n]*Xóa/);
+  assert.match(source, /const destructive = \[[^\]]*"remove-promotion"[^\]]*\]\.includes\(action\);[\s\S]*?if \(destructive && typeof root\.confirm === "function" && !root\.confirm\(confirmMessage\)\) return;/);
 });
 
 test("admin row actions stay behind an accessible overflow menu", () => {
@@ -252,10 +270,13 @@ test("product action labels stay lowercase and empty messages do not add gaps", 
 
 test("admin report view renders chart containers for live report series", async () => {
   const source = await readFile(join(__dirname, "admin.js"), "utf8");
-  assert.match(source, /daily-sales-chart/);
-  assert.match(source, /order-status-chart/);
-  assert.match(source, /report-detail-panel/);
-  assert.doesNotMatch(source, /JSON\.stringify\(other/);
+  assert.match(source, /querySelector\("#admin-report-charts"\)/);
+  assert.match(source, /id="admin-report-charts"/);
+  assert.match(source, /DOANH THU THEO NGÀY/);
+  assert.match(source, /TRẠNG THÁI ĐƠN/);
+  assert.match(source, /const chart = reportChartData\(report\);/);
+  assert.match(source, /chart\.dailySales\.map\(\(item\) =>/);
+  assert.match(source, /chart\.orderStatuses\.map\(\(item\) =>/);
 });
 
 test("report chart data is numeric-safe and exposes the largest revenue", () => {
@@ -334,6 +355,23 @@ test("staff without a requested section land on a section their role can use", (
   assert.equal(defaultView("sales"), "products");
   assert.equal(defaultView("warehouse"), "inventory");
   assert.equal(defaultView("sales", "reports"), "reports");
+});
+
+test("admin header actions only expose forms the current role can use", () => {
+  assert.deepEqual(headerActionFor("products", "sales"), {
+    label: "Thêm sản phẩm",
+    target: "#admin-form-create-product"
+  });
+  assert.deepEqual(headerActionFor("inventory", "warehouse"), {
+    label: "Nhập hàng",
+    target: "#admin-form-stock-receipt"
+  });
+  assert.deepEqual(headerActionFor("master-data", "manager"), {
+    label: "Thêm danh mục",
+    target: "#admin-form-create-category"
+  });
+  assert.equal(headerActionFor("products", "warehouse"), null);
+  assert.equal(headerActionFor("dashboard", "manager"), null);
 });
 
 test("report cards extract real scalar metrics from nested API responses", () => {

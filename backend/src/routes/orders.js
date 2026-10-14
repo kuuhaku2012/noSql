@@ -63,25 +63,158 @@ export function ordersRouter({ db }) {
     if (!order) throw notFound("Order not found");
     if (order.paymentMethod !== "mock") throw new HttpError(409, "PAYMENT_NOT_SUPPORTED", "Only simulated payments can be processed here");
     if (["cancelled", "returned"].includes(order.orderStatus)) throw new HttpError(409, "ORDER_NOT_PAYABLE", "This order cannot be paid");
+    const payments = db.collection("payments");
+    const handleCompletedOrder = async (currentOrder) => {
+      if (currentOrder.orderStatus !== "completed") return false;
+      if (currentOrder.stockCommitClaim || currentOrder.paymentOperationClaim) {
+        throw new HttpError(409, "CONCURRENT_UPDATE", "Order side effects are still being finalized");
+      }
+      const [payment, invoice] = await Promise.all([
+        payments.findOne({ orderId: currentOrder._id }),
+        db.collection("invoices").findOne({ orderId: currentOrder._id })
+      ]);
+      if (currentOrder.paymentStatus === "paid" && payment?.status === "paid" && invoice?.status === "issued") {
+        if (req.body.outcome === "failure") throw new HttpError(409, "PAYMENT_ALREADY_PAID", "This order has already been paid");
+        res.json({ data: await orderDetails(db, currentOrder) });
+        return true;
+      }
+      if (!payment || !invoice) throw new HttpError(409, "ORDER_ARTIFACTS_MISSING", "Order payment or invoice record is missing");
+      throw new HttpError(409, "ORDER_NOT_PAYABLE", "A completed order with unsettled payment cannot be paid");
+    };
+    if (await handleCompletedOrder(order)) return;
 
-    const existing = await db.collection("payments").findOne({ orderId: order._id });
-    if (existing?.status === "paid") {
-      if (req.body.outcome === "failure") throw new HttpError(409, "PAYMENT_ALREADY_PAID", "This order has already been paid");
-      res.json({ data: await orderDetails(db, order) });
+    const paymentOperationClaim = new ObjectId();
+    let claimedOrder;
+    try {
+      claimedOrder = await orders.findOneAndUpdate(
+        {
+          ...filter,
+          paymentMethod: "mock",
+          orderStatus: { $nin: ["cancelled", "returned", "completed"] },
+          stockCommitClaim: { $exists: false },
+          paymentOperationClaim: { $exists: false }
+        },
+        { $set: { paymentOperationClaim } },
+        { returnDocument: "after" }
+      );
+    } catch (error) {
+      claimedOrder = await orders.findOne({ _id: order._id, paymentOperationClaim });
+      if (!claimedOrder) throw error;
+    }
+    if (!claimedOrder) {
+      const current = await orders.findOne(filter);
+      if (!current) throw notFound("Order not found");
+      if (["cancelled", "returned"].includes(current.orderStatus)) throw new HttpError(409, "ORDER_NOT_PAYABLE", "This order cannot be paid");
+      if (await handleCompletedOrder(current)) return;
+      throw new HttpError(409, "CONCURRENT_UPDATE", "Order is being updated by another request");
+    }
+
+    const invoices = db.collection("invoices");
+    const releasePaymentClaim = async () => {
+      try {
+        const released = await orders.updateOne({ _id: order._id, paymentOperationClaim }, { $unset: { paymentOperationClaim: "" } });
+        if (released.matchedCount === 1) return;
+      } catch (error) {
+        const current = await orders.findOne({ _id: order._id, paymentOperationClaim });
+        if (!current) return;
+        throw error;
+      }
+      const stillClaimed = await orders.findOne({ _id: order._id, paymentOperationClaim });
+      if (stillClaimed) throw new Error("Could not release mock-payment claim");
+    };
+
+    let paymentSnapshot;
+    let invoiceSnapshot;
+    try {
+      [paymentSnapshot, invoiceSnapshot] = await Promise.all([
+        payments.findOne({ orderId: order._id }),
+        invoices.findOne({ orderId: order._id })
+      ]);
+    } catch (error) {
+      await releasePaymentClaim();
+      throw error;
+    }
+    if (!paymentSnapshot || !invoiceSnapshot) {
+      await releasePaymentClaim();
+      throw new HttpError(409, "ORDER_ARTIFACTS_MISSING", "Order payment or invoice record is missing");
+    }
+
+    const existing = paymentSnapshot;
+    if (existing.status === "paid") {
+      if (req.body.outcome === "failure") {
+        await releasePaymentClaim();
+        throw new HttpError(409, "PAYMENT_ALREADY_PAID", "This order has already been paid");
+      }
+      if (claimedOrder.paymentStatus !== "paid" || invoiceSnapshot.status !== "issued") {
+        await releasePaymentClaim();
+        throw new HttpError(409, "ORDER_ARTIFACTS_INCOMPLETE", "Order, payment, and invoice states are not synchronized");
+      }
+      await releasePaymentClaim();
+      res.json({ data: await orderDetails(db, await orders.findOne({ _id: order._id })) });
       return;
     }
 
     const now = new Date();
-    const payment = await db.collection("payments").findOneAndUpdate({ orderId: order._id }, {
-      $set: { method: "mock", status: req.body.outcome === "success" ? "paid" : "failed", isMock: true, updatedAt: now, lastAttemptAt: now },
-      $setOnInsert: { _id: new ObjectId(), orderId: order._id, amount: order.finalAmount, createdAt: now },
-      $inc: { attemptCount: 1 }
-    }, { upsert: true, returnDocument: "after" });
-    await db.collection("invoices").updateOne({ orderId: order._id }, {
-      $set: { status: req.body.outcome === "success" ? "issued" : "pending", updatedAt: now, ...(req.body.outcome === "success" ? { issuedAt: now } : {}) },
-      $setOnInsert: { _id: new ObjectId(), orderId: order._id, invoiceCode: `INV-${order.orderCode}`, amount: order.finalAmount, createdAt: now }
-    }, { upsert: true });
-    await orders.updateOne({ _id: order._id }, { $set: { paymentStatus: payment.status, updatedAt: now } });
+    const paymentStatus = req.body.outcome === "success" ? "paid" : "failed";
+    try {
+      const paymentResult = await payments.updateOne({ orderId: order._id }, {
+        $set: { method: "mock", status: paymentStatus, isMock: true, updatedAt: now, lastAttemptAt: now, paymentAttemptClaim: paymentOperationClaim, ...(paymentStatus === "paid" ? { paidAt: now } : {}) },
+        $inc: { attemptCount: 1 }
+      });
+      if (paymentResult.matchedCount !== 1) throw new HttpError(409, "ORDER_ARTIFACTS_MISSING", "Order payment record is missing");
+
+      const invoiceResult = await invoices.updateOne({ orderId: order._id }, {
+        $set: { status: paymentStatus === "paid" ? "issued" : "pending", updatedAt: now, paymentAttemptClaim: paymentOperationClaim, ...(paymentStatus === "paid" ? { issuedAt: now } : {}) }
+      });
+      if (invoiceResult.matchedCount !== 1) throw new HttpError(409, "ORDER_ARTIFACTS_MISSING", "Order invoice record is missing");
+
+      try {
+        const orderResult = await orders.updateOne(
+          { _id: order._id, paymentOperationClaim },
+          { $set: { paymentStatus, updatedAt: now }, $unset: { paymentOperationClaim: "" } }
+        );
+        if (orderResult.matchedCount !== 1) throw new HttpError(409, "CONCURRENT_UPDATE", "Order was changed by another request");
+      } catch (error) {
+        const persisted = await orders.findOne({ _id: order._id, paymentStatus, paymentOperationClaim: { $exists: false } });
+        if (!persisted) throw error;
+      }
+
+      // A stale marker is harmless after the order-level commit; cleanup ACK
+      // failures must not turn a successful payment into a failed response.
+      const cleanupResults = await Promise.allSettled([
+        payments.updateOne({ orderId: order._id, paymentAttemptClaim: paymentOperationClaim }, { $unset: { paymentAttemptClaim: "" } }),
+        invoices.updateOne({ orderId: order._id, paymentAttemptClaim: paymentOperationClaim }, { $unset: { paymentAttemptClaim: "" } })
+      ]);
+      for (const result of cleanupResults) {
+        if (result.status === "rejected") console.error("Mock payment committed but a transient marker could not be cleared", result.reason);
+      }
+    } catch (error) {
+      const committed = await orders.findOne({ _id: order._id, paymentStatus, paymentOperationClaim: { $exists: false } });
+      if (!committed) {
+        const compensationErrors = [];
+        const compensate = async (operation) => {
+          try { await operation(); } catch (compensationError) { compensationErrors.push(compensationError); }
+        };
+        await compensate(async () => {
+          const current = await payments.findOne({ orderId: order._id, paymentAttemptClaim: paymentOperationClaim });
+          if (!current) return;
+          const restored = await payments.replaceOne({ _id: paymentSnapshot._id, paymentAttemptClaim: paymentOperationClaim }, paymentSnapshot);
+          if (restored.matchedCount !== 1) throw new Error("Could not restore payment after simulated payment failure");
+        });
+        await compensate(async () => {
+          const current = await invoices.findOne({ orderId: order._id, paymentAttemptClaim: paymentOperationClaim });
+          if (!current) return;
+          const restored = await invoices.replaceOne({ _id: invoiceSnapshot._id, paymentAttemptClaim: paymentOperationClaim }, invoiceSnapshot);
+          if (restored.matchedCount !== 1) throw new Error("Could not restore invoice after simulated payment failure");
+        });
+        await compensate(async () => {
+          await releasePaymentClaim();
+        });
+        if (compensationErrors.length) throw new AggregateError([error, ...compensationErrors], "Mock payment failed and compensation was incomplete");
+        throw error;
+      }
+    }
+
     const updated = await orders.findOne({ _id: order._id });
     res.json({ data: await orderDetails(db, updated) });
   });

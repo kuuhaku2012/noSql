@@ -22,6 +22,7 @@ let app;
 let connected = false;
 let managerAgent;
 let salesAgent;
+let warehouseAgent;
 let customerAgent;
 
 before(async () => {
@@ -32,7 +33,7 @@ before(async () => {
   await db.dropDatabase();
   await createIndexes(db);
 
-  const users = ["manager", "sales", "customer"].map((role) => ({
+  const users = ["manager", "sales", "customer", "warehouse"].map((role) => ({
     _id: new ObjectId(),
     email: `${role}-shipping@test.local`,
     fullName: `${role} shipping test`,
@@ -48,8 +49,8 @@ before(async () => {
   ]);
 
   app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
-  [managerAgent, salesAgent, customerAgent] = users.map(() => request.agent(app));
-  for (const [agent, user] of [[managerAgent, users[0]], [salesAgent, users[1]], [customerAgent, users[2]]]) {
+  [managerAgent, salesAgent, customerAgent, warehouseAgent] = users.map(() => request.agent(app));
+  for (const [agent, user] of [[managerAgent, users[0]], [salesAgent, users[1]], [customerAgent, users[2]], [warehouseAgent, users[3]]]) {
     const login = await agent.post("/api/auth/login").send({ email: user.email, password: "Demo@123" });
     assert.equal(login.status, 200);
   }
@@ -139,11 +140,29 @@ test("shipping-rate reads are manager-only", async () => {
   assert.equal((await customerAgent.get("/api/admin/shipping-rates")).status, 403);
 });
 
-test("shipping-rate writes require manager role and validate unique codes and fees", async () => {
-  for (const agent of [salesAgent, customerAgent]) {
-    assert.equal((await agent.post("/api/admin/shipping-rates").send({ regionCode: "denied-demo", regionName: "Denied", fee: 1 })).status, 403);
-    assert.equal((await agent.patch("/api/admin/shipping-rates/hcm-demo").send({ fee: 1 })).status, 403);
-    assert.equal((await agent.delete("/api/admin/shipping-rates/hcm-demo")).status, 403);
+test("shipping-rate writes require manager role, preserve state on denials, and validate unique codes and fees", async () => {
+  const shippingRates = db.collection("shipping_rates");
+  const hcmRate = await shippingRates.findOne({ code: "hcm-demo" });
+  const countBeforeDeniedWrites = await shippingRates.countDocuments();
+  const actors = [
+    ["anonymous", request(app), 401],
+    ["sales", salesAgent, 403],
+    ["warehouse", warehouseAgent, 403],
+    ["customer", customerAgent, 403]
+  ];
+  for (const [role, agent, expectedStatus] of actors) {
+    const deniedCreate = await agent.post("/api/admin/shipping-rates").send({ regionCode: "denied-demo", regionName: "Denied", fee: 1 });
+    assert.equal(deniedCreate.status, expectedStatus, `${role} cannot create shipping rates`);
+    assert.equal(await shippingRates.countDocuments(), countBeforeDeniedWrites);
+    assert.equal(await shippingRates.countDocuments({ code: "denied-demo" }), 0);
+
+    const deniedUpdate = await agent.patch(`/api/admin/shipping-rates/${hcmRate._id}`).send({ fee: 1 });
+    assert.equal(deniedUpdate.status, expectedStatus, `${role} cannot update shipping rates`);
+    assert.deepEqual(await shippingRates.findOne({ _id: hcmRate._id }), hcmRate);
+
+    const deniedDelete = await agent.delete(`/api/admin/shipping-rates/${hcmRate._id}`);
+    assert.equal(deniedDelete.status, expectedStatus, `${role} cannot deactivate shipping rates`);
+    assert.deepEqual(await shippingRates.findOne({ _id: hcmRate._id }), hcmRate);
   }
 
   const duplicate = await managerAgent.post("/api/admin/shipping-rates").send({ regionCode: " HCM-DEMO ", regionName: "Duplicate", fee: 1 });

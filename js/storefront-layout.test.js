@@ -171,12 +171,15 @@ test("homepage campaign uses a solid copy panel and blends the image into its fr
 
 test("hero image softens at the copy seam and campaign copy gets a reduced-motion-safe glint", async () => {
   const css = await readFile(join(root, "css/atelier.css"), "utf8");
-  const heroSeam = css.match(/\.hero-visual::after\s*\{([^}]*)\}/s)?.[1] || "";
+  const heroSeam = css.match(/\.hero-visual::before\s*\{([^}]*)\}/s)?.[1] || "";
+  const heroOverlay = css.match(/\.hero-visual::after\s*\{([^}]*)\}/s)?.[1] || "";
   const campaignSeam = css.match(/\.campaign-visual::after\s*\{([^}]*)\}/s)?.[1] || "";
   const campaignGlint = css.match(/\.campaign-copy::after\s*\{([^}]*)\}/s)?.[1] || "";
   assert.match(heroSeam, /backdrop-filter:\s*blur\(/, "only the hero image seam should be softened");
   assert.match(heroSeam, /mask-image:\s*linear-gradient/, "the blur should fade out before covering the product");
-  assert.match(heroSeam, /left:\s*-\d+px/, "the hero blur should extend slightly across the copy frame");
+  assert.match(heroSeam, /inset:\s*0 auto 0 54%/, "the hero blur should sit over the image/copy transition");
+  assert.match(heroSeam, /width:\s*clamp\(/, "the blur should stay confined to a narrow seam");
+  assert.match(heroOverlay, /background:\s*linear-gradient\(/, "the readable copy overlay should remain separate from the blur");
   assert.match(campaignSeam, /backdrop-filter:\s*blur\(/, "the campaign seam should soften the extended image background");
   assert.match(campaignSeam, /left:\s*-\d+px/, "the campaign blur should extend into the copy frame");
   assert.match(campaignGlint, /linear-gradient\(/, "the campaign panel should contain a soft light streak");

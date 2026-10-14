@@ -217,12 +217,344 @@ export async function createOrder({ db, user, body }) {
   }
 }
 
+async function completeOrderTransition({ db, order, user, note, now, stockAlreadyCommitted = false }) {
+  const completionClaim = new ObjectId();
+  const orders = db.collection("orders");
+  let claimed;
+  try {
+    claimed = await orders.findOneAndUpdate(
+      {
+        _id: order._id,
+        orderStatus: order.orderStatus,
+        stockCommitted: stockAlreadyCommitted ? true : { $ne: true },
+        stockCommitClaim: { $exists: false },
+        paymentOperationClaim: { $exists: false }
+      },
+      { $set: { stockCommitClaim: completionClaim } },
+      { returnDocument: "after" }
+    );
+  } catch (error) {
+    // A network timeout can happen after MongoDB applied findOneAndUpdate.
+    claimed = await orders.findOne({ _id: order._id, stockCommitClaim: completionClaim });
+    if (!claimed) throw error;
+  }
+  if (!claimed) throw new HttpError(409, "CONCURRENT_UPDATE", "Order was changed by another request");
+  // The caller may have loaded a stale order before a mock payment completed.
+  // Use the locked document as the compensation snapshot so rollback preserves
+  // the latest payment state that existed when this completion claimed it.
+  const orderSnapshot = claimed;
+
+  const attemptedItems = [];
+  const completionHistoryId = new ObjectId();
+  const pointHistoryId = new ObjectId();
+  let paymentSnapshot;
+  let invoiceSnapshot;
+  let paymentUpdateAttempted = false;
+  let invoiceUpdateAttempted = false;
+  let membershipUpdateAttempted = false;
+  let orderCompletionAttempted = false;
+  let finalClaimReleaseAttempted = false;
+  let finalClaimReleaseStateConfirmed = false;
+  let loyaltyPoints = 0;
+  let saved;
+  const clearCompletionMarkers = async () => {
+    const results = await Promise.allSettled([
+      db.collection("inventories").updateMany({ stockCommitClaims: completionClaim }, { $pull: { stockCommitClaims: completionClaim } }),
+      db.collection("memberships").updateOne({ userId: order.userId, completionClaims: completionClaim }, { $pull: { completionClaims: completionClaim } }),
+      db.collection("payments").updateOne({ orderId: order._id, completionClaim }, { $unset: { completionClaim: "" } }),
+      db.collection("invoices").updateOne({ orderId: order._id, completionClaim }, { $unset: { completionClaim: "" } })
+    ]);
+    for (const result of results) {
+      if (result.status === "rejected") console.error("Order completion committed but a transient marker could not be cleared", result.reason);
+    }
+  };
+
+  try {
+    [paymentSnapshot, invoiceSnapshot] = await Promise.all([
+      db.collection("payments").findOne({ orderId: order._id }),
+      db.collection("invoices").findOne({ orderId: order._id })
+    ]);
+    if (!paymentSnapshot || !invoiceSnapshot) {
+      throw new HttpError(409, "ORDER_ARTIFACTS_MISSING", "Order payment or invoice record is missing");
+    }
+    if (stockAlreadyCommitted && (
+      claimed.paymentStatus !== "paid" || paymentSnapshot.status !== "paid" || invoiceSnapshot.status !== "issued"
+    )) {
+      throw new HttpError(409, "ORDER_ARTIFACTS_INCOMPLETE", "Stock-committed legacy order needs payment and invoice reconciliation before completion");
+    }
+
+    if (!stockAlreadyCommitted) {
+      for (const item of order.items) {
+        attemptedItems.push(item);
+        const result = await db.collection("inventories").updateOne(
+          { storeId: order.storeId, variantId: item.variantId, stockQuantity: { $gte: item.quantity }, reservedQuantity: { $gte: item.quantity } },
+          {
+            $inc: { stockQuantity: -item.quantity, reservedQuantity: -item.quantity, version: 1 },
+            $addToSet: { stockCommitClaims: completionClaim },
+            $set: { updatedAt: new Date() }
+          }
+        );
+        if (result.modifiedCount !== 1) throw new HttpError(409, "STOCK_COMMIT_FAILED", `Could not commit stock for ${item.sku}`);
+      }
+    }
+
+    orderCompletionAttempted = true;
+    saved = await db.collection("orders").findOneAndUpdate(
+      { _id: order._id, orderStatus: order.orderStatus, stockCommitClaim: completionClaim },
+      { $set: { orderStatus: "completed", stockCommitted: true, paymentStatus: "paid", updatedAt: now, lastUpdatedByUserId: user._id } },
+      { returnDocument: "after" }
+    );
+    if (!saved) throw new HttpError(409, "CONCURRENT_UPDATE", "Order was changed by another request");
+
+    await db.collection("order_histories").insertOne({
+      _id: completionHistoryId,
+      orderId: order._id,
+      oldStatus: order.orderStatus,
+      newStatus: "completed",
+      note,
+      createdByUserId: user._id,
+      createdAt: now
+    });
+
+    paymentUpdateAttempted = true;
+    const paymentUpdate = await db.collection("payments").updateOne(
+      { orderId: order._id },
+      { $set: { status: "paid", paidAt: now, updatedAt: now, completionClaim } }
+    );
+    if (paymentUpdate.matchedCount !== 1) throw new HttpError(409, "ORDER_ARTIFACTS_MISSING", "Order payment record is missing");
+    invoiceUpdateAttempted = true;
+    const invoiceUpdate = await db.collection("invoices").updateOne(
+      { orderId: order._id },
+      { $set: { status: "issued", issuedAt: now, updatedAt: now, completionClaim } }
+    );
+    if (invoiceUpdate.matchedCount !== 1) throw new HttpError(409, "ORDER_ARTIFACTS_MISSING", "Order invoice record is missing");
+
+    const loyaltyAmount = order.subtotal == null
+      ? Number(order.finalAmount || 0) - Number(order.deliveryFee || 0)
+      : Number(order.subtotal) - Number(order.discountAmount || 0);
+    loyaltyPoints = Math.floor(Math.max(0, loyaltyAmount) / 10000);
+    if (loyaltyPoints > 0 && !await db.collection("point_histories").findOne({ orderId: order._id, type: "earned" })) {
+      membershipUpdateAttempted = true;
+      const membershipUpdate = await db.collection("memberships").updateOne({ userId: order.userId }, {
+        $setOnInsert: { _id: new ObjectId(), userId: order.userId, tier: "bronze", createdAt: now },
+        $inc: { pointsBalance: loyaltyPoints, lifetimePoints: loyaltyPoints },
+        $addToSet: { completionClaims: completionClaim },
+        $set: { updatedAt: now }
+      }, { upsert: true });
+      if (membershipUpdate.matchedCount !== 1 && membershipUpdate.upsertedCount !== 1) throw new Error("Could not award loyalty points");
+      await db.collection("point_histories").insertOne({
+        _id: pointHistoryId,
+        userId: order.userId,
+        orderId: order._id,
+        type: "earned",
+        points: loyaltyPoints,
+        note: "Points for completed order",
+        createdAt: now
+      });
+    } else {
+      loyaltyPoints = 0;
+    }
+
+    finalClaimReleaseAttempted = true;
+    try {
+      saved = await db.collection("orders").findOneAndUpdate(
+        { _id: order._id, orderStatus: "completed", stockCommitClaim: completionClaim },
+        { $unset: { stockCommitClaim: "" } },
+        { returnDocument: "after" }
+      );
+      if (!saved) {
+        saved = await orders.findOne({ _id: order._id, orderStatus: "completed", stockCommitted: true, stockCommitClaim: { $exists: false } });
+        finalClaimReleaseStateConfirmed = true;
+      }
+      if (!saved) throw new HttpError(409, "CONCURRENT_UPDATE", "Order was changed by another request");
+      finalClaimReleaseStateConfirmed = true;
+    } catch (error) {
+      const persisted = await orders.findOne({
+        _id: order._id,
+        orderStatus: "completed",
+        stockCommitted: true,
+        stockCommitClaim: { $exists: false }
+      });
+      finalClaimReleaseStateConfirmed = true;
+      if (!persisted) throw error;
+      saved = persisted;
+    }
+
+    // The order is now committed. Marker cleanup is deliberately outside the
+    // compensation block: a cleanup ACK loss must never undo committed stock.
+    await clearCompletionMarkers();
+    return saved;
+  } catch (error) {
+    const compensationErrors = [];
+    const compensate = async (operation) => {
+      try {
+        return await operation();
+      } catch (compensationError) {
+        compensationErrors.push(compensationError);
+        return undefined;
+      }
+    };
+    const deleteIfPresent = async (collectionName, filter, description) => {
+      const collection = db.collection(collectionName);
+      try {
+        const result = await collection.deleteOne(filter);
+        if (result.deletedCount === 1) return;
+        if (!await collection.findOne(filter)) return;
+        throw new Error(`Could not remove ${description}`);
+      } catch (deleteError) {
+        if (!await collection.findOne(filter)) return;
+        throw deleteError;
+      }
+    };
+    const restoreMarkedSnapshot = async (collectionName, snapshot, markerField, description) => {
+      const collection = db.collection(collectionName);
+      const filter = { _id: snapshot._id, [markerField]: completionClaim };
+      if (!await collection.findOne(filter)) return;
+      try {
+        const restored = await collection.replaceOne(filter, snapshot);
+        if (restored.matchedCount === 1) return;
+      } catch (restoreError) {
+        if (!await collection.findOne(filter)) return;
+        throw restoreError;
+      }
+      if (await collection.findOne(filter)) throw new Error(`Could not restore ${description}`);
+    };
+
+    if (finalClaimReleaseAttempted && !finalClaimReleaseStateConfirmed) {
+      throw new AggregateError([error, ...compensationErrors], "Final order completion acknowledgement is ambiguous; inspect the order before retrying");
+    }
+
+    if (finalClaimReleaseAttempted) {
+      const persisted = await compensate(async () => orders.findOne({
+        _id: order._id,
+        orderStatus: "completed",
+        stockCommitted: true,
+        stockCommitClaim: { $exists: false }
+      }));
+      if (persisted) {
+        await clearCompletionMarkers();
+        return persisted;
+      }
+    }
+
+    if (membershipUpdateAttempted) {
+      await compensate(() => deleteIfPresent("point_histories", { _id: pointHistoryId }, "loyalty point history"));
+      await compensate(async () => {
+        const membership = await db.collection("memberships").findOne({ userId: order.userId, completionClaims: completionClaim });
+        if (!membership) return;
+        try {
+          const restored = await db.collection("memberships").updateOne(
+            { userId: order.userId, completionClaims: completionClaim },
+            {
+              $inc: { pointsBalance: -loyaltyPoints, lifetimePoints: -loyaltyPoints },
+              $pull: { completionClaims: completionClaim },
+              $set: { updatedAt: new Date() }
+            }
+          );
+          if (restored.modifiedCount === 1) return;
+        } catch (restoreError) {
+          const markerRemains = await db.collection("memberships").findOne({ userId: order.userId, completionClaims: completionClaim });
+          if (!markerRemains) return;
+          throw restoreError;
+        }
+        const markerRemains = await db.collection("memberships").findOne({ userId: order.userId, completionClaims: completionClaim });
+        if (markerRemains) throw new Error("Could not restore membership points");
+      });
+    }
+
+    await compensate(() => deleteIfPresent("order_histories", { _id: completionHistoryId }, "completion history"));
+    if (invoiceUpdateAttempted && invoiceSnapshot) {
+      await compensate(() => restoreMarkedSnapshot("invoices", invoiceSnapshot, "completionClaim", "invoice snapshot"));
+    }
+    if (paymentUpdateAttempted && paymentSnapshot) {
+      await compensate(() => restoreMarkedSnapshot("payments", paymentSnapshot, "completionClaim", "payment snapshot"));
+    }
+
+    if (orderCompletionAttempted) await compensate(async () => {
+      const set = { orderStatus: orderSnapshot.orderStatus };
+      const unset = {};
+      for (const field of ["stockCommitted", "paymentStatus", "updatedAt", "lastUpdatedByUserId"]) {
+        if (Object.hasOwn(orderSnapshot, field)) set[field] = orderSnapshot[field];
+        else unset[field] = "";
+      }
+      const update = { $set: set, $unset: { ...unset } };
+      try {
+        const restored = await db.collection("orders").updateOne(
+          { _id: order._id, stockCommitClaim: completionClaim },
+          update
+        );
+        if (restored.matchedCount === 1) return;
+      } catch (restoreError) {
+        const current = await orders.findOne({ _id: order._id, stockCommitClaim: completionClaim });
+        if (current?.orderStatus === order.orderStatus) return;
+        throw restoreError;
+      }
+      const current = await orders.findOne({ _id: order._id, stockCommitClaim: completionClaim });
+      if (current?.orderStatus !== order.orderStatus) throw new Error("Could not restore the order completion state");
+    });
+
+    const committedItems = [];
+    for (const item of attemptedItems) {
+      await compensate(async () => {
+        const inventory = await db.collection("inventories").findOne({
+          storeId: order.storeId,
+          variantId: item.variantId,
+          stockCommitClaims: completionClaim
+        });
+        if (inventory) committedItems.push(item);
+      });
+    }
+    for (const item of committedItems.reverse()) {
+      await compensate(async () => {
+        try {
+          const restored = await db.collection("inventories").updateOne(
+            { storeId: order.storeId, variantId: item.variantId, stockCommitClaims: completionClaim },
+            {
+              $inc: { stockQuantity: item.quantity, reservedQuantity: item.quantity, version: 1 },
+              $pull: { stockCommitClaims: completionClaim },
+              $set: { updatedAt: new Date() }
+            }
+          );
+          if (restored.modifiedCount === 1) return;
+        } catch (restoreError) {
+          const markerRemains = await db.collection("inventories").findOne({ storeId: order.storeId, variantId: item.variantId, stockCommitClaims: completionClaim });
+          if (!markerRemains) return;
+          throw restoreError;
+        }
+        const markerRemains = await db.collection("inventories").findOne({ storeId: order.storeId, variantId: item.variantId, stockCommitClaims: completionClaim });
+        if (markerRemains) throw new Error(`Could not restore stock for ${item.sku}`);
+      });
+    }
+
+    if (compensationErrors.length === 0) {
+      await compensate(async () => {
+        try {
+          const released = await db.collection("orders").updateOne(
+            { _id: order._id, stockCommitClaim: completionClaim },
+            { $unset: { stockCommitClaim: "" } }
+          );
+          if (released.matchedCount === 1) return;
+        } catch (releaseError) {
+          const stillClaimed = await orders.findOne({ _id: order._id, stockCommitClaim: completionClaim });
+          if (!stillClaimed) return;
+          throw releaseError;
+        }
+        if (await orders.findOne({ _id: order._id, stockCommitClaim: completionClaim })) {
+          throw new Error("Could not release the order completion claim");
+        }
+      });
+    }
+    if (compensationErrors.length) throw new AggregateError([error, ...compensationErrors], "Order completion failed and compensation was incomplete");
+    throw error;
+  }
+}
+
 export async function transitionOrder({ db, order, user, status, note = "" }) {
   assertTransition(orderTransitions, order.orderStatus, status);
   if (status === "cancelled" && !order.reservationReleased) {
     const now = new Date();
     const claimed = await db.collection("orders").findOneAndUpdate(
-      { _id: order._id, orderStatus: order.orderStatus, reservationReleased: { $ne: true }, stockCommitClaim: { $exists: false } },
+      { _id: order._id, orderStatus: order.orderStatus, reservationReleased: { $ne: true }, stockCommitClaim: { $exists: false }, paymentOperationClaim: { $exists: false } },
       { $set: { orderStatus: "cancelled", updatedAt: now, lastUpdatedByUserId: user._id } },
       { returnDocument: "after" }
     );
@@ -245,95 +577,20 @@ export async function transitionOrder({ db, order, user, status, note = "" }) {
     await db.collection("order_histories").insertOne({ orderId: order._id, oldStatus: order.orderStatus, newStatus: status, note, createdByUserId: user._id, createdAt: now });
     return saved;
   }
-  const commitsStock = status === "completed" && !order.stockCommitted;
-  const completionClaim = commitsStock ? new ObjectId() : null;
-  const committedItems = [];
   const now = new Date();
-  if (completionClaim) {
-    const claimed = await db.collection("orders").findOneAndUpdate(
-      {
-        _id: order._id,
-        orderStatus: order.orderStatus,
-        stockCommitted: { $ne: true },
-        stockCommitClaim: { $exists: false }
-      },
-      { $set: { stockCommitClaim: completionClaim } },
-      { returnDocument: "after" }
-    );
-    if (!claimed) throw new HttpError(409, "CONCURRENT_UPDATE", "Order was changed by another request");
+  if (status === "completed") {
+    return completeOrderTransition({ db, order, user, note, now, stockAlreadyCommitted: order.stockCommitted === true });
   }
 
-  let saved;
-  try {
-    if (completionClaim) {
-      for (const item of order.items) {
-        const result = await db.collection("inventories").updateOne(
-          { storeId: order.storeId, variantId: item.variantId, stockQuantity: { $gte: item.quantity }, reservedQuantity: { $gte: item.quantity } },
-          { $inc: { stockQuantity: -item.quantity, reservedQuantity: -item.quantity, version: 1 }, $set: { updatedAt: new Date() } }
-        );
-        if (result.modifiedCount !== 1) throw new HttpError(409, "STOCK_COMMIT_FAILED", `Could not commit stock for ${item.sku}`);
-        committedItems.push(item);
-      }
-    }
-
-    const update = { orderStatus: status, updatedAt: now, lastUpdatedByUserId: user._id };
-    if (status === "cancelled") update.reservationReleased = true;
-    if (status === "completed") { update.stockCommitted = true; update.paymentStatus = "paid"; }
-    const filter = { _id: order._id, orderStatus: order.orderStatus };
-    if (completionClaim) {
-      filter.stockCommitClaim = completionClaim;
-    } else {
-      filter.stockCommitClaim = { $exists: false };
-    }
-    const updateDocument = { $set: update };
-    if (completionClaim) updateDocument.$unset = { stockCommitClaim: "" };
-    saved = await db.collection("orders").findOneAndUpdate(filter, updateDocument, { returnDocument: "after" });
-    if (!saved) throw new HttpError(409, "CONCURRENT_UPDATE", "Order was changed by another request");
-  } catch (error) {
-    if (completionClaim) {
-      const compensationErrors = [];
-      for (const item of committedItems.reverse()) {
-        try {
-          const restored = await db.collection("inventories").updateOne(
-            { storeId: order.storeId, variantId: item.variantId },
-            { $inc: { stockQuantity: item.quantity, reservedQuantity: item.quantity, version: 1 }, $set: { updatedAt: new Date() } }
-          );
-          if (restored.modifiedCount !== 1) throw new Error(`Could not restore stock for ${item.sku}`);
-        } catch (compensationError) {
-          compensationErrors.push(compensationError);
-        }
-      }
-      if (compensationErrors.length === 0) {
-        try {
-          const released = await db.collection("orders").updateOne(
-            { _id: order._id, stockCommitClaim: completionClaim },
-            { $unset: { stockCommitClaim: "" } }
-          );
-          if (released.modifiedCount !== 1) throw new Error("Could not release the order completion claim");
-        } catch (compensationError) {
-          compensationErrors.push(compensationError);
-        }
-      }
-      if (compensationErrors.length) throw new AggregateError([error, ...compensationErrors], "Order completion failed and compensation was incomplete");
-    }
-    throw error;
-  }
+  const update = { orderStatus: status, updatedAt: now, lastUpdatedByUserId: user._id };
+  if (status === "cancelled") update.reservationReleased = true;
+  if (status === "completed") { update.stockCommitted = true; update.paymentStatus = "paid"; }
+  const saved = await db.collection("orders").findOneAndUpdate(
+    { _id: order._id, orderStatus: order.orderStatus, stockCommitClaim: { $exists: false }, paymentOperationClaim: { $exists: false } },
+    { $set: update },
+    { returnDocument: "after" }
+  );
+  if (!saved) throw new HttpError(409, "CONCURRENT_UPDATE", "Order was changed by another request");
   await db.collection("order_histories").insertOne({ orderId: order._id, oldStatus: order.orderStatus, newStatus: status, note, createdByUserId: user._id, createdAt: now });
-  if (status === "completed" && !order.stockCommitted) {
-    await db.collection("payments").updateOne({ orderId: order._id }, { $set: { status: "paid", paidAt: now, updatedAt: now } });
-    await db.collection("invoices").updateOne({ orderId: order._id }, { $set: { status: "issued", issuedAt: now, updatedAt: now } });
-    const loyaltyAmount = order.subtotal == null
-      ? Number(order.finalAmount || 0) - Number(order.deliveryFee || 0)
-      : Number(order.subtotal) - Number(order.discountAmount || 0);
-    const points = Math.floor(Math.max(0, loyaltyAmount) / 10000);
-    if (points > 0 && !await db.collection("point_histories").findOne({ orderId: order._id, type: "earned" })) {
-      await db.collection("memberships").updateOne({ userId: order.userId }, {
-        $setOnInsert: { _id: new ObjectId(), userId: order.userId, tier: "bronze", createdAt: now },
-        $inc: { pointsBalance: points, lifetimePoints: points },
-        $set: { updatedAt: now }
-      }, { upsert: true });
-      await db.collection("point_histories").insertOne({ _id: new ObjectId(), userId: order.userId, orderId: order._id, type: "earned", points, note: "Points for completed order", createdAt: now });
-    }
-  }
   return saved;
 }

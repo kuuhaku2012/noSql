@@ -26,6 +26,14 @@
     returns: "Tiếp nhận đổi trả, xác nhận hàng nhận và xử lý hoàn tiền.",
     "master-data": "Quản lý danh mục, thương hiệu và cửa hàng."
   };
+  const headerActions = {
+    products: { label: "Thêm sản phẩm", action: "create-product", roles: ["sales", "manager"] },
+    inventory: { label: "Nhập hàng", action: "stock-receipt", roles: ["warehouse", "manager"] },
+    promotions: { label: "Tạo khuyến mãi", action: "create-promotion", roles: ["sales", "manager"] },
+    deliveries: { label: "Tạo phiếu giao", action: "create-delivery", roles: ["sales", "manager"] },
+    returns: { label: "Tạo yêu cầu đổi trả", action: "create-return", roles: ["sales", "manager"] },
+    "master-data": { label: "Thêm danh mục", action: "create-category", roles: ["manager"] }
+  };
   const statusLabels = {
     pending: "Chờ xác nhận", requested: "Chờ tiếp nhận", confirmed: "Đã xác nhận",
     processing: "Đang xử lý", shipped: "Đang giao", delivered: "Đã giao",
@@ -56,6 +64,12 @@
     if (requested === "reports") return "reports";
     if (titles[requested]) return requested;
     return role === "warehouse" ? "inventory" : role === "sales" ? "products" : "dashboard";
+  }
+  function headerActionFor(view, role) {
+    const action = headerActions[view];
+    return action?.roles.includes(String(role).toLowerCase())
+      ? { label: action.label, target: `#admin-form-${action.action}` }
+      : null;
   }
   function reportFields(report, prefix = "") {
     if (!report || typeof report !== "object" || Array.isArray(report)) return [];
@@ -285,7 +299,7 @@
       "create-delivery": '<svg viewBox="0 0 24 24" focusable="false"><path d="M3 6h11v11H3zM14 10h4l3 3v4h-7z"/><circle cx="7.5" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>',
       "create-return": '<svg viewBox="0 0 24 24" focusable="false"><path d="M9 14 4 9l5-5"/><path d="M4 9h9a7 7 0 1 1-6.4 9.8"/></svg>'
     };
-    return `<section class="panel form-panel admin-create-panel"><div class="admin-create-heading"><span class="admin-create-icon" aria-hidden="true">${icons[action] || icons["create-category"]}</span><div><span class="eyebrow">${copy[0]}</span><h2>${title}</h2><p>${copy[1]}</p></div></div><form data-admin-action="${action}" class="form-grid admin-create-form">${fields}<div class="admin-create-actions"><p class="form-message" role="status"></p><button class="btn" type="submit"><span aria-hidden="true">＋</span>${submit}</button></div></form></section>`;
+    return `<section class="panel form-panel admin-create-panel" id="admin-form-${action}" tabindex="-1"><div class="admin-create-heading"><span class="admin-create-icon" aria-hidden="true">${icons[action] || icons["create-category"]}</span><div><span class="eyebrow">${copy[0]}</span><h2>${title}</h2><p>${copy[1]}</p></div></div><form data-admin-action="${action}" class="form-grid admin-create-form">${fields}<div class="admin-create-actions"><p class="form-message" role="status"></p><button class="btn" type="submit"><span aria-hidden="true">＋</span>${submit}</button></div></form></section>`;
   }
 
   function groupAdminWorkspace(host) {
@@ -313,6 +327,22 @@
     let currentRole = "";
     const title = root.document.querySelector("#view-title");
     const description = root.document.querySelector("#view-description");
+    const breadcrumbRoot = root.document.querySelector("#admin-breadcrumb-root");
+    const breadcrumbCurrent = root.document.querySelector("#admin-breadcrumb-current");
+    const headerAction = root.document.querySelector("#admin-head-action");
+    function syncHeaderAction() {
+      if (!headerAction) return;
+      const action = headerActionFor(view, currentRole);
+      const target = action && root.document.querySelector(action.target);
+      headerAction.hidden = !target;
+      if (target) {
+        headerAction.href = action.target;
+        headerAction.setAttribute("aria-label", action.label);
+        headerAction.title = action.label;
+        const label = headerAction.querySelector("span");
+        if (label) label.textContent = action.label;
+      }
+    }
     const localDateValue = (date) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
     function exportDashboardReport() {
       const report = root.__mbAdminReport;
@@ -356,6 +386,9 @@
     const syncNav = () => {
       title.textContent = titles[view];
       if (description) description.textContent = descriptions[view] || "Quản lý hoạt động cửa hàng.";
+      if (breadcrumbRoot) breadcrumbRoot.href = `admin.html?view=${defaultView(currentRole || "manager")}`;
+      if (breadcrumbCurrent) breadcrumbCurrent.textContent = titles[view] || "Quản trị";
+      syncHeaderAction();
       const exportButton = root.document.querySelector("#admin-export-report");
       if (exportButton) exportButton.disabled = !root.__mbAdminReport || view !== "dashboard";
       root.document.querySelectorAll("[data-nav-view]").forEach((link) => {
@@ -363,7 +396,9 @@
         link.classList.toggle("active", active);
         if (active) link.setAttribute("aria-current", "page");
         else link.removeAttribute("aria-current");
-        link.hidden = Boolean(currentRole && !canAccess(currentRole, link.dataset.navView));
+        const visible = canAccess(currentRole, link.dataset.navView);
+        link.hidden = !visible;
+        if (link.style) link.style.display = visible ? "" : "none";
       });
     };
     syncNav();
@@ -485,16 +520,18 @@
 
     async function listOrState(fetcher, render) {
       state(host, "loading", "Đang tải dữ liệu vận hành…");
+      syncHeaderAction();
       try {
         await render(await fetcher());
         if (["products", "orders", "customers", "appointments", "inventory", "promotions", "deliveries", "returns", "master-data"].includes(view)) groupAdminWorkspace(host);
         decorateCrudView();
+        syncHeaderAction();
       }
-      catch (error) { errorState(host, error); }
+      catch (error) { errorState(host, error); syncHeaderAction(); }
     }
 
     async function renderView() {
-      if (!canAccess(currentRole, view)) { state(host, "forbidden", "Vai trò hiện tại không được cấp quyền xem mục này."); return; }
+      if (!canAccess(currentRole, view)) { state(host, "forbidden", "Vai trò hiện tại không được cấp quyền xem mục này."); syncHeaderAction(); return; }
       if (view === "dashboard") return dashboardView();
       if (view === "products") return productsView();
       if (view === "orders") return ordersView();
@@ -1024,5 +1061,5 @@
     start();
   }
 
-  return { canAccess, defaultView, pickRole, reportFields, reportSummaryEntries, formatReportDate, dashboardMetrics, reportChartData, crudActionPayload, rowActions, actionPopoverPosition, bind };
+  return { canAccess, defaultView, headerActionFor, pickRole, reportFields, reportSummaryEntries, formatReportDate, dashboardMetrics, reportChartData, crudActionPayload, rowActions, actionPopoverPosition, bind };
 });

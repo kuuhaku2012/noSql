@@ -141,6 +141,63 @@ test("checkout derives shipping from the active rate and retries one request ide
   assert.equal((await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount, before.voucherUses + 1);
 });
 
+test("checkout uses server prices and ignores forged client totals", async () => {
+  const checkoutRequestId = `server-prices-${new ObjectId().toHexString()}`;
+  const inventoryBefore = await db.collection("inventories").findOne({ variantId });
+  try {
+    const response = await customerAgent.post("/api/orders").send({
+      checkoutRequestId,
+      items: [{ variantId: variantId.toHexString(), quantity: 2, unitPrice: 1 }],
+      paymentMethod: "cod",
+      subtotal: 1,
+      discountAmount: 999999,
+      deliveryFee: 1,
+      finalAmount: 1,
+      shippingAddress: { receiverName: "Order Customer", receiverPhone: "0900000000", fullAddress: "1 Demo Street", regionCode: "hcm-demo" }
+    });
+
+    assert.equal(response.status, 201, JSON.stringify(response.body));
+    const storedOrder = await db.collection("orders").findOne({ userId: customer._id, checkoutRequestId });
+    assert.ok(storedOrder, "checkout order should be persisted");
+    assert.equal(storedOrder.items[0].unitPrice, 100000);
+    assert.equal(storedOrder.deliveryFee, 25000);
+    assert.equal(storedOrder.subtotal, 200000);
+    assert.equal(storedOrder.discountAmount, 0);
+    assert.equal(storedOrder.finalAmount, 225000);
+  } finally {
+    try {
+      const orderToCancel = await db.collection("orders").findOne({ userId: customer._id, checkoutRequestId });
+      if (orderToCancel?.orderStatus === "pending") {
+        const cancellation = await customerAgent.patch(`/api/orders/${orderToCancel._id}/status`).send({ status: "cancelled" });
+        assert.equal(cancellation.status, 200, JSON.stringify(cancellation.body));
+        assert.equal(cancellation.body.data.orderStatus, "cancelled");
+      }
+    } finally {
+      try {
+        const testOrder = await db.collection("orders").findOne({ userId: customer._id, checkoutRequestId });
+        if (testOrder) {
+          const cleanupResults = await Promise.allSettled([
+            db.collection("order_histories").deleteMany({ orderId: testOrder._id }),
+            db.collection("payments").deleteMany({ orderId: testOrder._id }),
+            db.collection("invoices").deleteMany({ orderId: testOrder._id }),
+            db.collection("orders").deleteOne({ _id: testOrder._id, userId: customer._id, checkoutRequestId })
+          ]);
+          const cleanupErrors = cleanupResults.filter((result) => result.status === "rejected");
+          assert.equal(cleanupErrors.length, 0, JSON.stringify(cleanupErrors));
+        }
+      } finally {
+        await db.collection("inventories").updateOne(
+          { storeId: inventoryBefore.storeId, variantId },
+          { $set: { reservedQuantity: inventoryBefore.reservedQuantity } }
+        );
+      }
+      const inventoryAfter = await db.collection("inventories").findOne({ storeId: inventoryBefore.storeId, variantId });
+      assert.equal(inventoryAfter.reservedQuantity, inventoryBefore.reservedQuantity);
+      assert.equal(await db.collection("orders").countDocuments({ userId: customer._id, checkoutRequestId }), 0);
+    }
+  }
+});
+
 test("successful markerless legacy checkout replay does not consume resources again", async () => {
   const body = {
     checkoutRequestId: "legacy-markerless-replay",
@@ -403,6 +460,58 @@ test("unsupported or missing shipping regions reject checkout before consuming a
   assert.equal(await db.collection("orders").countDocuments({ userId: customer._id }), before.orders);
 });
 
+test("inactive shipping rates reject checkout before consuming anything", async () => {
+  const checkoutRequestId = `checkout-inactive-region-${new ObjectId().toHexString()}`;
+  const inactiveRateId = new ObjectId();
+  const inventoryBefore = await db.collection("inventories").findOne({ variantId });
+  const voucherBefore = await db.collection("vouchers").findOne({ code: "BELLE10" });
+  await db.collection("shipping_rates").insertOne({
+    _id: inactiveRateId, code: `inactive-${inactiveRateId.toHexString()}`, regionName: "Inactive demo region",
+    fee: 25000, currency: "VND", isDemo: true, isActive: false
+  });
+
+  try {
+    const customerOrderCountBefore = await db.collection("orders").countDocuments({ userId: customer._id });
+    const response = await customerAgent.post("/api/orders").send({
+      checkoutRequestId,
+      items: [{ variantId: variantId.toHexString(), quantity: 1 }],
+      voucherCode: "BELLE10",
+      paymentMethod: "cod",
+      shippingAddress: {
+        receiverName: "Order Customer", receiverPhone: "0900000000", fullAddress: "1 Demo Street",
+        regionCode: `inactive-${inactiveRateId.toHexString()}`
+      }
+    });
+
+    assert.equal(response.status, 409);
+    assert.equal(response.body.error.code, "SHIPPING_UNAVAILABLE");
+    const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+    assert.equal(inventoryAfter.stockQuantity, inventoryBefore.stockQuantity);
+    assert.equal(inventoryAfter.reservedQuantity, inventoryBefore.reservedQuantity);
+    assert.equal((await db.collection("vouchers").findOne({ code: "BELLE10" })).usedCount, voucherBefore.usedCount);
+    assert.equal(await db.collection("orders").countDocuments({ userId: customer._id, checkoutRequestId }), 0);
+    assert.equal(await db.collection("orders").countDocuments({ userId: customer._id }), customerOrderCountBefore);
+  } finally {
+    const unexpectedOrder = await db.collection("orders").findOne({ userId: customer._id, checkoutRequestId });
+    if (unexpectedOrder) {
+      await Promise.allSettled([
+        db.collection("order_histories").deleteMany({ orderId: unexpectedOrder._id }),
+        db.collection("payments").deleteMany({ orderId: unexpectedOrder._id }),
+        db.collection("invoices").deleteMany({ orderId: unexpectedOrder._id }),
+        db.collection("orders").deleteOne({ _id: unexpectedOrder._id, userId: customer._id, checkoutRequestId })
+      ]);
+    }
+    await Promise.allSettled([
+      db.collection("inventories").updateOne(
+        { _id: inventoryBefore._id },
+        { $set: { stockQuantity: inventoryBefore.stockQuantity, reservedQuantity: inventoryBefore.reservedQuantity } }
+      ),
+      db.collection("vouchers").updateOne({ _id: voucherBefore._id }, { $set: { usedCount: voucherBefore.usedCount } }),
+      db.collection("shipping_rates").deleteOne({ _id: inactiveRateId })
+    ]);
+  }
+});
+
 test("failed payment write compensates stock, voucher usage, and incomplete order artifacts", async () => {
   const before = {
     inventory: await db.collection("inventories").findOne({ variantId }),
@@ -495,6 +604,10 @@ test("COD stays pending through delivery, rejects mock payment, and settles only
   assert.equal(settled.paymentStatus, "paid");
   assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "paid");
   assert.equal((await db.collection("invoices").findOne({ orderId: id })).status, "issued");
+  assert.deepEqual((await db.collection("inventories").findOne({ variantId })).stockCommitClaims, []);
+  assert.deepEqual((await db.collection("memberships").findOne({ userId: customer._id })).completionClaims, []);
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).completionClaim, undefined);
+  assert.equal((await db.collection("invoices").findOne({ orderId: id })).completionClaim, undefined);
   assert.equal(await db.collection("order_histories").countDocuments({ orderId: id }), 6);
   for (const status of ["pending", "confirmed", "processing", "shipped", "delivered", "completed"]) {
     assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: status }), 1);
@@ -597,6 +710,593 @@ test("failed multi-item completion restores earlier stock writes and can be retr
   assert.equal((await db.collection("inventories").findOne({ _id: firstBefore._id })).stockQuantity, firstBefore.stockQuantity - 1);
   assert.equal((await db.collection("inventories").findOne({ _id: secondBefore._id })).stockQuantity, secondBefore.stockQuantity - 1);
   assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: "completed" }), 1);
+});
+
+test("failed payment update during completion restores stock and leaves the order retryable", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder();
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  const order = await db.collection("orders").findOne({ _id: id });
+  const inventoryBefore = await db.collection("inventories").findOne({ variantId });
+
+  const failingDb = {
+    collection(name) {
+      const collection = db.collection(name);
+      if (name !== "payments") return collection;
+      return new Proxy(collection, {
+        get(target, property) {
+          if (property === "updateOne") return async () => { throw new Error("injected payment update failure"); };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    }
+  };
+
+  await assert.rejects(
+    transitionOrder({ db: failingDb, order, user: sales, status: "completed" }),
+    /injected payment update failure/
+  );
+
+  const savedOrder = await db.collection("orders").findOne({ _id: id });
+  const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+  assert.equal(savedOrder.orderStatus, "delivered");
+  assert.equal(savedOrder.paymentStatus, "pending");
+  assert.equal(savedOrder.stockCommitted, false);
+  assert.equal(savedOrder.stockCommitClaim, undefined);
+  assert.equal(inventoryAfter.stockQuantity, inventoryBefore.stockQuantity);
+  assert.equal(inventoryAfter.reservedQuantity, inventoryBefore.reservedQuantity);
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "pending");
+  assert.equal((await db.collection("invoices").findOne({ orderId: id })).status, "pending");
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: "completed" }), 0);
+
+  const retried = await transitionOrder({ db, order: savedOrder, user: sales, status: "completed" });
+  assert.equal(retried.orderStatus, "completed");
+  const inventoryAfterRetry = await db.collection("inventories").findOne({ variantId });
+  assert.equal(inventoryAfterRetry.stockQuantity, inventoryBefore.stockQuantity - 1);
+  assert.equal(inventoryAfterRetry.reservedQuantity, inventoryBefore.reservedQuantity - 1);
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+  );
+});
+
+test("failed invoice update during completion restores the preceding payment update", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder();
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  const order = await db.collection("orders").findOne({ _id: id });
+
+  const failingDb = {
+    collection(name) {
+      const collection = db.collection(name);
+      if (name !== "invoices") return collection;
+      return new Proxy(collection, {
+        get(target, property) {
+          if (property === "updateOne") return async () => { throw new Error("injected invoice update failure"); };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    }
+  };
+
+  await assert.rejects(
+    transitionOrder({ db: failingDb, order, user: sales, status: "completed" }),
+    /injected invoice update failure/
+  );
+
+  const savedOrder = await db.collection("orders").findOne({ _id: id });
+  const payment = await db.collection("payments").findOne({ orderId: id });
+  const invoice = await db.collection("invoices").findOne({ orderId: id });
+  assert.equal(savedOrder.orderStatus, "delivered");
+  assert.equal(savedOrder.paymentStatus, "pending");
+  assert.equal(savedOrder.stockCommitted, false);
+  assert.equal(savedOrder.stockCommitClaim, undefined);
+  assert.equal(payment.status, "pending");
+  assert.equal(payment.paidAt, undefined);
+  assert.equal(invoice.status, "pending");
+  assert.equal(invoice.issuedAt, undefined);
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: "completed" }), 0);
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+  );
+});
+
+test("completion rollback preserves mock payment settled after the caller loaded its stale order", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder({ paymentMethod: "mock" });
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  const staleOrder = await db.collection("orders").findOne({ _id: id });
+  assert.equal(staleOrder.paymentStatus, "pending");
+
+  const paid = await customerAgent.post(`/api/orders/${id}/payment`).send({ outcome: "success" });
+  assert.equal(paid.status, 200, JSON.stringify(paid.body));
+  assert.equal(paid.body.data.payment.status, "paid");
+  const inventoryBeforeCompletion = await db.collection("inventories").findOne({ variantId });
+  const failingDb = {
+    collection(name) {
+      const collection = db.collection(name);
+      if (name !== "invoices") return collection;
+      return new Proxy(collection, {
+        get(target, property) {
+          if (property === "updateOne") return async (filter, update, ...args) => {
+            if (update?.$set?.completionClaim) throw new Error("injected completion invoice failure after mock payment");
+            return target.updateOne(filter, update, ...args);
+          };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    }
+  };
+
+  await assert.rejects(
+    transitionOrder({ db: failingDb, order: staleOrder, user: sales, status: "completed" }),
+    /injected completion invoice failure after mock payment/
+  );
+  const savedOrder = await db.collection("orders").findOne({ _id: id });
+  assert.equal(savedOrder.orderStatus, "delivered");
+  assert.equal(savedOrder.paymentStatus, "paid");
+  assert.equal(savedOrder.stockCommitted, false);
+  assert.equal(savedOrder.stockCommitClaim, undefined);
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "paid");
+  assert.equal((await db.collection("invoices").findOne({ orderId: id })).status, "issued");
+  const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+  assert.equal(inventoryAfter.stockQuantity, inventoryBeforeCompletion.stockQuantity);
+  assert.equal(inventoryAfter.reservedQuantity, inventoryBeforeCompletion.reservedQuantity);
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+  );
+});
+
+test("completion compensates an inventory write that applied before its acknowledgement was lost", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder();
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  const inventoryBeforeCompletion = await db.collection("inventories").findOne({ variantId });
+  let injected = false;
+  const ambiguousDb = {
+    collection(name) {
+      const collection = db.collection(name);
+      if (name !== "inventories") return collection;
+      return new Proxy(collection, {
+        get(target, property) {
+          if (property === "updateOne") return async (...args) => {
+            const result = await target.updateOne(...args);
+            if (!injected && args[1]?.$addToSet?.stockCommitClaims) {
+              injected = true;
+              throw new Error("injected lost inventory acknowledgement");
+            }
+            return result;
+          };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    }
+  };
+
+  await assert.rejects(
+    transitionOrder({ db: ambiguousDb, order: await db.collection("orders").findOne({ _id: id }), user: sales, status: "completed" }),
+    /injected lost inventory acknowledgement/
+  );
+  const savedOrder = await db.collection("orders").findOne({ _id: id });
+  const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+  assert.equal(savedOrder.orderStatus, "delivered");
+  assert.equal(savedOrder.stockCommitClaim, undefined);
+  assert.equal(inventoryAfter.stockQuantity, inventoryBeforeCompletion.stockQuantity);
+  assert.equal(inventoryAfter.reservedQuantity, inventoryBeforeCompletion.reservedQuantity);
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: "completed" }), 0);
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+  );
+});
+
+test("completion compensates points when membership write applied before acknowledgement loss", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  await db.collection("memberships").updateOne(
+    { userId: customer._id },
+    { $set: { pointsBalance: 41, lifetimePoints: 120, tier: "silver" } },
+    { upsert: true }
+  );
+  const membershipBefore = await db.collection("memberships").findOne({ userId: customer._id });
+  const id = await createLifecycleOrder();
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  const inventoryBeforeCompletion = await db.collection("inventories").findOne({ variantId });
+  let injected = false;
+  const ambiguousDb = {
+    collection(name) {
+      const collection = db.collection(name);
+      if (name !== "memberships") return collection;
+      return new Proxy(collection, {
+        get(target, property) {
+          if (property === "updateOne") return async (...args) => {
+            const result = await target.updateOne(...args);
+            if (!injected && args[1]?.$addToSet?.completionClaims) {
+              injected = true;
+              throw new Error("injected lost membership acknowledgement");
+            }
+            return result;
+          };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    }
+  };
+
+  await assert.rejects(
+    transitionOrder({ db: ambiguousDb, order: await db.collection("orders").findOne({ _id: id }), user: sales, status: "completed" }),
+    /injected lost membership acknowledgement/
+  );
+  const membershipAfter = await db.collection("memberships").findOne({ userId: customer._id });
+  const savedOrder = await db.collection("orders").findOne({ _id: id });
+  const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+  assert.equal(membershipAfter.pointsBalance, membershipBefore.pointsBalance);
+  assert.equal(membershipAfter.lifetimePoints, membershipBefore.lifetimePoints);
+  assert.equal(await db.collection("point_histories").countDocuments({ orderId: id, type: "earned" }), 0);
+  assert.equal(savedOrder.orderStatus, "delivered");
+  assert.equal(savedOrder.stockCommitClaim, undefined);
+  assert.equal(inventoryAfter.stockQuantity, inventoryBeforeCompletion.stockQuantity);
+  assert.equal(inventoryAfter.reservedQuantity, inventoryBeforeCompletion.reservedQuantity);
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+  );
+});
+
+test("completion rejects orders missing payment or invoice before committing stock", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  for (const missing of ["payments", "invoices"]) {
+    const id = await createLifecycleOrder();
+    await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+    const inventoryBefore = await db.collection("inventories").findOne({ variantId });
+    await db.collection(missing).deleteOne({ orderId: id });
+
+    const response = await salesAgent.patch(`/api/orders/${id}/status`).send({ status: "completed" });
+    assert.equal(response.status, 409, JSON.stringify(response.body));
+    assert.equal(response.body.error.code, "ORDER_ARTIFACTS_MISSING");
+    const savedOrder = await db.collection("orders").findOne({ _id: id });
+    const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+    assert.equal(savedOrder.orderStatus, "delivered");
+    assert.equal(savedOrder.stockCommitClaim, undefined);
+    assert.equal(inventoryAfter.stockQuantity, inventoryBefore.stockQuantity);
+    assert.equal(inventoryAfter.reservedQuantity, inventoryBefore.reservedQuantity);
+    await db.collection("payments").deleteMany({ orderId: id });
+    await db.collection("invoices").deleteMany({ orderId: id });
+    await db.collection("inventories").updateOne(
+      { variantId },
+      { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+    );
+  }
+});
+
+test("completion fails closed on missing payment artifacts for a stock-committed legacy order", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  for (const missing of ["payments", "invoices"]) {
+    const id = await createLifecycleOrder();
+    await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+    const inventoryBefore = await db.collection("inventories").findOne({ variantId });
+    await db.collection("orders").updateOne({ _id: id }, { $set: { stockCommitted: true } });
+    await db.collection(missing).deleteOne({ orderId: id });
+
+    const response = await salesAgent.patch(`/api/orders/${id}/status`).send({ status: "completed" });
+    assert.equal(response.status, 409, JSON.stringify(response.body));
+    assert.equal(response.body.error.code, "ORDER_ARTIFACTS_MISSING");
+    const savedOrder = await db.collection("orders").findOne({ _id: id });
+    const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+    assert.equal(savedOrder.orderStatus, "delivered");
+    assert.equal(savedOrder.paymentStatus, "pending");
+    assert.equal(inventoryAfter.stockQuantity, inventoryBefore.stockQuantity);
+    assert.equal(inventoryAfter.reservedQuantity, inventoryBefore.reservedQuantity);
+    await db.collection("payments").deleteMany({ orderId: id });
+    await db.collection("invoices").deleteMany({ orderId: id });
+    await db.collection("inventories").updateOne(
+      { variantId },
+      { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+    );
+  }
+});
+
+test("stock-committed legacy completion rejects pending payment and invoice records", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder({ paymentMethod: "mock" });
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  const inventoryBefore = await db.collection("inventories").findOne({ variantId });
+  await db.collection("orders").updateOne({ _id: id }, { $set: { stockCommitted: true } });
+
+  const response = await salesAgent.patch(`/api/orders/${id}/status`).send({ status: "completed" });
+  assert.equal(response.status, 409, JSON.stringify(response.body));
+  assert.equal(response.body.error.code, "ORDER_ARTIFACTS_INCOMPLETE");
+  const savedOrder = await db.collection("orders").findOne({ _id: id });
+  assert.equal(savedOrder.orderStatus, "delivered");
+  assert.equal(savedOrder.paymentStatus, "pending");
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "pending");
+  assert.equal((await db.collection("invoices").findOne({ orderId: id })).status, "pending");
+  const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+  assert.equal(inventoryAfter.stockQuantity, inventoryBefore.stockQuantity);
+  assert.equal(inventoryAfter.reservedQuantity, inventoryBefore.reservedQuantity);
+  await db.collection("orders").updateOne({ _id: id }, { $set: { stockCommitted: false } });
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+  );
+});
+
+test("mock payment cannot change a completed order whose payment is not settled", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder({ paymentMethod: "mock" });
+  await db.collection("orders").updateOne({ _id: id }, { $set: { orderStatus: "completed", stockCommitted: true } });
+
+  const response = await customerAgent.post(`/api/orders/${id}/payment`).send({ outcome: "success" });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, "ORDER_NOT_PAYABLE");
+  const order = await db.collection("orders").findOne({ _id: id });
+  assert.equal(order.orderStatus, "completed");
+  assert.equal(order.paymentStatus, "pending");
+  assert.equal(order.paymentOperationClaim, undefined);
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "pending");
+  assert.equal((await db.collection("invoices").findOne({ orderId: id })).status, "pending");
+  await db.collection("orders").updateOne({ _id: id }, { $set: { orderStatus: "pending", stockCommitted: false } });
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+  );
+});
+
+test("mock payment replay remains idempotent after a consistent order completion", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder({ paymentMethod: "mock" });
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered", "completed"]);
+  const attemptsBefore = (await db.collection("payments").findOne({ orderId: id })).attemptCount;
+
+  const replay = await customerAgent.post(`/api/orders/${id}/payment`).send({ outcome: "success" });
+  assert.equal(replay.status, 200, JSON.stringify(replay.body));
+  assert.equal(replay.body.data.orderStatus, "completed");
+  assert.equal(replay.body.data.payment.status, "paid");
+  assert.equal(replay.body.data.invoice.status, "issued");
+  const failure = await customerAgent.post(`/api/orders/${id}/payment`).send({ outcome: "failure" });
+  assert.equal(failure.status, 409);
+  assert.equal(failure.body.error.code, "PAYMENT_ALREADY_PAID");
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).attemptCount, attemptsBefore);
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+  );
+});
+
+test("mock payment replay waits while completed-order side effects are still claimed", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  for (const claimField of ["stockCommitClaim", "paymentOperationClaim"]) {
+    const id = await createLifecycleOrder({ paymentMethod: "mock" });
+    await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered", "completed"]);
+    const claim = new ObjectId();
+    await db.collection("orders").updateOne({ _id: id }, { $set: { [claimField]: claim } });
+
+    const response = await customerAgent.post(`/api/orders/${id}/payment`).send({ outcome: "success" });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.error.code, "CONCURRENT_UPDATE");
+    const order = await db.collection("orders").findOne({ _id: id });
+    assert.equal(order[claimField].toHexString(), claim.toHexString());
+    assert.equal(order.paymentStatus, "paid");
+    assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "paid");
+    assert.equal((await db.collection("invoices").findOne({ orderId: id })).status, "issued");
+    await db.collection("orders").updateOne({ _id: id }, { $unset: { [claimField]: "" } });
+    await db.collection("inventories").updateOne(
+      { variantId },
+      { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+    );
+  }
+});
+
+test("mock payment does not report an idempotent success for mismatched paid artifacts", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  for (const mismatch of ["pending-invoice", "pending-order"]) {
+    const id = await createLifecycleOrder({ paymentMethod: "mock" });
+    await db.collection("payments").updateOne({ orderId: id }, { $set: { status: "paid", paidAt: new Date() } });
+    if (mismatch === "pending-invoice") {
+      await db.collection("orders").updateOne({ _id: id }, { $set: { paymentStatus: "paid" } });
+    } else {
+      await db.collection("invoices").updateOne({ orderId: id }, { $set: { status: "issued", issuedAt: new Date() } });
+    }
+
+    const response = await customerAgent.post(`/api/orders/${id}/payment`).send({ outcome: "success" });
+    assert.equal(response.status, 409, JSON.stringify(response.body));
+    assert.equal(response.body.error.code, "ORDER_ARTIFACTS_INCOMPLETE");
+    const order = await db.collection("orders").findOne({ _id: id });
+    assert.equal(order.paymentOperationClaim, undefined);
+    assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "paid");
+    assert.equal((await db.collection("invoices").findOne({ orderId: id })).status, mismatch === "pending-invoice" ? "pending" : "issued");
+    await db.collection("inventories").updateOne(
+      { variantId },
+      { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+    );
+  }
+});
+
+test("stock-committed legacy completion rolls back order when history write fails", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder();
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  await db.collection("orders").updateOne({ _id: id }, { $set: { stockCommitted: true, paymentStatus: "paid" } });
+  await db.collection("payments").updateOne({ orderId: id }, { $set: { status: "paid", paidAt: new Date() } });
+  await db.collection("invoices").updateOne({ orderId: id }, { $set: { status: "issued", issuedAt: new Date() } });
+  const order = await db.collection("orders").findOne({ _id: id });
+  const inventoryBefore = await db.collection("inventories").findOne({ variantId });
+  const failingDb = {
+    collection(name) {
+      const collection = db.collection(name);
+      if (name !== "order_histories") return collection;
+      return new Proxy(collection, {
+        get(target, property) {
+          if (property === "insertOne") return async (document, ...args) => {
+            if (document.newStatus === "completed") throw new Error("injected legacy completion history failure");
+            return target.insertOne(document, ...args);
+          };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    }
+  };
+
+  await assert.rejects(
+    transitionOrder({ db: failingDb, order, user: sales, status: "completed" }),
+    /injected legacy completion history failure/
+  );
+  const savedOrder = await db.collection("orders").findOne({ _id: id });
+  assert.equal(savedOrder.orderStatus, "delivered");
+  assert.equal(savedOrder.stockCommitted, true);
+  assert.equal(savedOrder.paymentStatus, "paid");
+  assert.equal(savedOrder.stockCommitClaim, undefined);
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: "completed" }), 0);
+  const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+  assert.equal(inventoryAfter.stockQuantity, inventoryBefore.stockQuantity);
+  assert.equal(inventoryAfter.reservedQuantity, inventoryBefore.reservedQuantity);
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+  );
+});
+
+test("completion treats a lost final claim-release acknowledgement as committed success", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder();
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  const order = await db.collection("orders").findOne({ _id: id });
+  let injected = false;
+  const ambiguousDb = {
+    collection(name) {
+      const collection = db.collection(name);
+      if (name !== "orders") return collection;
+      return new Proxy(collection, {
+        get(target, property) {
+          if (property === "findOneAndUpdate") return async (filter, ...args) => {
+            const result = await target.findOneAndUpdate(filter, ...args);
+            if (!injected && filter.orderStatus === "completed" && args[0]?.$unset?.stockCommitClaim) {
+              injected = true;
+              throw new Error("injected lost final claim-release acknowledgement");
+            }
+            return result;
+          };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    }
+  };
+
+  const completed = await transitionOrder({ db: ambiguousDb, order, user: sales, status: "completed" });
+  assert.equal(completed.orderStatus, "completed");
+  const savedOrder = await db.collection("orders").findOne({ _id: id });
+  assert.equal(savedOrder.stockCommitClaim, undefined);
+  assert.equal(savedOrder.stockCommitted, true);
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "paid");
+  assert.equal((await db.collection("invoices").findOne({ orderId: id })).status, "issued");
+  assert.equal(await db.collection("order_histories").countDocuments({ orderId: id, newStatus: "completed" }), 1);
+  const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+  assert.equal(inventoryAfter.stockQuantity, inventoryBaseline.stockQuantity - 1);
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+  );
+});
+
+test("completion fails closed while a mock-payment operation owns the order lock", async () => {
+  const inventoryBefore = await db.collection("inventories").findOne({ variantId });
+  const id = await createLifecycleOrder({ paymentMethod: "mock" });
+  await advanceOrder(id, ["confirmed", "processing", "shipped", "delivered"]);
+  const paymentOperationClaim = new ObjectId();
+  await db.collection("orders").updateOne({ _id: id }, { $set: { paymentOperationClaim } });
+
+  const response = await salesAgent.patch(`/api/orders/${id}/status`).send({ status: "completed" });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, "CONCURRENT_UPDATE");
+  const savedOrder = await db.collection("orders").findOne({ _id: id });
+  const inventoryAfter = await db.collection("inventories").findOne({ variantId });
+  assert.equal(savedOrder.orderStatus, "delivered");
+  assert.equal(savedOrder.stockCommitClaim, undefined);
+  assert.equal(inventoryAfter.stockQuantity, inventoryBefore.stockQuantity);
+  assert.equal(inventoryAfter.reservedQuantity, inventoryBefore.reservedQuantity + 1);
+  await db.collection("orders").updateOne({ _id: id }, { $unset: { paymentOperationClaim: "" } });
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { stockQuantity: inventoryBefore.stockQuantity, reservedQuantity: inventoryBefore.reservedQuantity } }
+  );
+});
+
+test("mock payment rejects while completion owns the order lock", async () => {
+  const id = await createLifecycleOrder({ paymentMethod: "mock" });
+  const stockCommitClaim = new ObjectId();
+  await db.collection("orders").updateOne({ _id: id }, { $set: { stockCommitClaim } });
+
+  const response = await customerAgent.post(`/api/orders/${id}/payment`).send({ outcome: "success" });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, "CONCURRENT_UPDATE");
+  assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "pending");
+  assert.equal((await db.collection("invoices").findOne({ orderId: id })).status, "pending");
+  assert.equal((await db.collection("orders").findOne({ _id: id })).paymentStatus, "pending");
+
+  await db.collection("orders").updateOne({ _id: id }, { $unset: { stockCommitClaim: "" } });
+  const inventory = await db.collection("inventories").findOne({ variantId });
+  await db.collection("inventories").updateOne(
+    { variantId },
+    { $set: { reservedQuantity: inventory.reservedQuantity - 1 } }
+  );
+});
+
+test("mock payment restores artifacts and releases its lock when an update ACK is lost", async () => {
+  const inventoryBaseline = await db.collection("inventories").findOne({ variantId });
+  for (const failedCollection of ["payments", "invoices"]) {
+    const id = await createLifecycleOrder({ paymentMethod: "mock" });
+    let injected = false;
+    const failingDb = {
+      collection(name) {
+        const collection = db.collection(name);
+        if (name !== failedCollection) return collection;
+        return new Proxy(collection, {
+          get(target, property) {
+            if (property === "updateOne") return async (...args) => {
+              const result = await target.updateOne(...args);
+              if (!injected && args[1]?.$set?.paymentAttemptClaim) {
+                injected = true;
+                throw new Error(`injected lost ${failedCollection} acknowledgement`);
+              }
+              return result;
+            };
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          }
+        });
+      }
+    };
+    const failingAgent = request.agent(createApp({ db: failingDb, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } }));
+    const login = await failingAgent.post("/api/auth/login").send({ email: customer.email, password: "Demo@123" });
+    assert.equal(login.status, 200);
+
+    const failed = await failingAgent.post(`/api/orders/${id}/payment`).send({ outcome: "success" });
+    assert.equal(failed.status, 500, JSON.stringify(failed.body));
+    const savedOrder = await db.collection("orders").findOne({ _id: id });
+    assert.equal(savedOrder.paymentOperationClaim, undefined);
+    assert.equal(savedOrder.paymentStatus, "pending");
+    assert.equal((await db.collection("payments").findOne({ orderId: id })).status, "pending");
+    assert.equal((await db.collection("payments").findOne({ orderId: id })).paymentAttemptClaim, undefined);
+    assert.equal((await db.collection("invoices").findOne({ orderId: id })).status, "pending");
+    assert.equal((await db.collection("invoices").findOne({ orderId: id })).paymentAttemptClaim, undefined);
+
+    const retry = await customerAgent.post(`/api/orders/${id}/payment`).send({ outcome: "success" });
+    assert.equal(retry.status, 200, JSON.stringify(retry.body));
+    assert.equal(retry.body.data.payment.status, "paid");
+    assert.equal((await db.collection("orders").findOne({ _id: id })).paymentOperationClaim, undefined);
+    await db.collection("inventories").updateOne(
+      { variantId },
+      { $set: { stockQuantity: inventoryBaseline.stockQuantity, reservedQuantity: inventoryBaseline.reservedQuantity } }
+    );
+  }
 });
 
 test("replayed pending-order cancellation releases reservation and writes history once", async () => {

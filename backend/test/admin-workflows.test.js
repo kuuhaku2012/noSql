@@ -62,6 +62,64 @@ after(async () => {
   await client?.close();
 });
 
+async function createApprovedSplitReturn(orderCode) {
+  const returnStoreId = new ObjectId();
+  const returnOrderId = new ObjectId();
+  await db.collection("inventories").insertOne({
+    _id: new ObjectId(), storeId: returnStoreId, variantId, stockQuantity: 4, reservedQuantity: 0, version: 1
+  });
+  await db.collection("orders").insertOne({
+    _id: returnOrderId, orderCode, storeId: returnStoreId,
+    orderStatus: "completed", items: [{ variantId, quantity: 3, unitPrice: 50000 }],
+    createdAt: new Date("2025-01-01T00:00:00.000Z")
+  });
+  const created = await managerAgent.post("/api/admin/returns").send({
+    orderId: String(returnOrderId), reason: "Split packaging",
+    items: [{ variantId: String(variantId), quantity: 1 }, { variantId: String(variantId), quantity: 2 }]
+  });
+  assert.equal(created.status, 201);
+  const returnId = new ObjectId(created.body.data.id);
+  const url = `/api/admin/returns/${returnId}`;
+  assert.equal((await managerAgent.patch(url).send({ status: "approved" })).status, 200);
+  return { returnStoreId, returnId, url };
+}
+
+function dbWithInjectedInventoryLogFailure({ acknowledgementLost }) {
+  let injected = false;
+  const message = acknowledgementLost
+    ? "injected lost return log acknowledgement"
+    : "injected return log write failure";
+  const failingDb = {
+    collection(name) {
+      const collection = db.collection(name);
+      if (name !== "inventory_logs") return collection;
+      return new Proxy(collection, {
+        get(target, property) {
+          if (property === "insertOne") return async (...args) => {
+            if (injected) return target.insertOne(...args);
+            injected = true;
+            if (acknowledgementLost) await target.insertOne(...args);
+            throw new Error(message);
+          };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    }
+  };
+  return { db: failingDb, wasInjected: () => injected, message };
+}
+
+async function createManagerAgent(testDb) {
+  const agent = request.agent(createApp({
+    db: testDb,
+    config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) }
+  }));
+  const login = await agent.post("/api/auth/login").send({ email: "manager-admin@test.local", password: "Demo@123" });
+  assert.equal(login.status, 200);
+  return agent;
+}
+
 test("warehouse receipt and adjustment protect stock", async () => {
   const list = await warehouseAgent.get("/api/admin/inventory");
   assert.equal(list.status, 200);
@@ -133,6 +191,92 @@ test("return approval does not restock and receipt restores accepted stock once"
   assert.equal(replay.status, 200);
   assert.equal((await db.collection("inventories").findOne({ storeId: returnStoreId, variantId })).stockQuantity, 5);
   assert.equal(await db.collection("inventory_logs").countDocuments({ returnId }), 1);
+  const stored = await db.collection("returns").findOne({ _id: returnId });
+  assert.deepEqual(stored.history.map(({ status }) => status), ["requested", "approved", "received"]);
+});
+
+test("return receipt aggregates repeated variant lines and replay preserves all effects", async () => {
+  const returnStoreId = new ObjectId();
+  const returnOrderId = new ObjectId();
+  await db.collection("inventories").insertOne({
+    _id: new ObjectId(), storeId: returnStoreId, variantId, stockQuantity: 4, reservedQuantity: 0, version: 1
+  });
+  await db.collection("orders").insertOne({
+    _id: returnOrderId, orderCode: "MB-RETURN-SPLIT", storeId: returnStoreId,
+    orderStatus: "completed", items: [{ variantId, quantity: 3, unitPrice: 50000 }],
+    createdAt: new Date("2025-01-01T00:00:00.000Z")
+  });
+  const created = await managerAgent.post("/api/admin/returns").send({
+    orderId: String(returnOrderId), reason: "Split packaging",
+    items: [{ variantId: String(variantId), quantity: 1 }, { variantId: String(variantId), quantity: 2 }]
+  });
+  assert.equal(created.status, 201);
+  const returnId = new ObjectId(created.body.data.id);
+  const url = `/api/admin/returns/${returnId}`;
+  assert.equal((await managerAgent.patch(url).send({ status: "approved" })).status, 200);
+  assert.equal((await db.collection("inventories").findOne({ storeId: returnStoreId, variantId })).stockQuantity, 4);
+  assert.equal((await managerAgent.patch(url).send({ status: "received" })).status, 200);
+  const inventory = await db.collection("inventories").findOne({ storeId: returnStoreId, variantId });
+  assert.equal(inventory.stockQuantity, 7, "all three accepted units must be restocked");
+  assert.equal(inventory.version, 2);
+  assert.deepEqual(inventory.receivedReturnIds, [returnId]);
+  const logs = await db.collection("inventory_logs").find({ returnId }).toArray();
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].quantityChanged, 3);
+  const stored = await db.collection("returns").findOne({ _id: returnId });
+  assert.deepEqual(stored.history.map(({ status }) => status), ["requested", "approved", "received"]);
+  assert.equal((await managerAgent.patch(url).send({ status: "received" })).status, 200);
+  assert.deepEqual(await db.collection("inventories").findOne({ storeId: returnStoreId, variantId }), inventory);
+  assert.deepEqual(await db.collection("inventory_logs").find({ returnId }).toArray(), logs);
+  assert.deepEqual(await db.collection("returns").findOne({ _id: returnId }), stored);
+});
+
+test("return receipt retry inserts a missing inventory log after a failed insert without restocking again", async () => {
+  const { returnStoreId, returnId, url } = await createApprovedSplitReturn("MB-RETURN-LOG-FAILURE");
+  const injectedDb = dbWithInjectedInventoryLogFailure({ acknowledgementLost: false });
+  const failingAgent = await createManagerAgent(injectedDb.db);
+
+  const failed = await failingAgent.patch(url).send({ status: "received" });
+  assert.equal(injectedDb.wasInjected(), true);
+  assert.equal(failed.status, 500);
+  const inventoryAfterFailure = await db.collection("inventories").findOne({ storeId: returnStoreId, variantId });
+  assert.equal(inventoryAfterFailure.stockQuantity, 7);
+  assert.equal(inventoryAfterFailure.version, 2);
+  assert.deepEqual(inventoryAfterFailure.receivedReturnIds, [returnId]);
+  assert.equal(await db.collection("inventory_logs").countDocuments({ returnId, variantId }), 0);
+
+  const retried = await managerAgent.patch(url).send({ status: "received" });
+  assert.equal(retried.status, 200);
+  assert.deepEqual(await db.collection("inventories").findOne({ storeId: returnStoreId, variantId }), inventoryAfterFailure);
+  const logs = await db.collection("inventory_logs").find({ returnId, variantId }).toArray();
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].quantityChanged, 3);
+  assert.equal(logs[0].changeType, "return");
+  assert.equal(String(logs[0].inventoryId), String(inventoryAfterFailure._id));
+  const stored = await db.collection("returns").findOne({ _id: returnId });
+  assert.deepEqual(stored.history.map(({ status }) => status), ["requested", "approved", "received"]);
+});
+
+test("return receipt retry does not duplicate an inventory log whose insert acknowledgement was lost", async () => {
+  const { returnStoreId, returnId, url } = await createApprovedSplitReturn("MB-RETURN-LOG-ACK-LOST");
+  const injectedDb = dbWithInjectedInventoryLogFailure({ acknowledgementLost: true });
+  const failingAgent = await createManagerAgent(injectedDb.db);
+
+  const failed = await failingAgent.patch(url).send({ status: "received" });
+  assert.equal(injectedDb.wasInjected(), true);
+  assert.equal(failed.status, 500);
+  const inventoryAfterFailure = await db.collection("inventories").findOne({ storeId: returnStoreId, variantId });
+  assert.equal(inventoryAfterFailure.stockQuantity, 7);
+  assert.equal(inventoryAfterFailure.version, 2);
+  assert.deepEqual(inventoryAfterFailure.receivedReturnIds, [returnId]);
+  const logsAfterFailure = await db.collection("inventory_logs").find({ returnId, variantId }).toArray();
+  assert.equal(logsAfterFailure.length, 1);
+  assert.equal(logsAfterFailure[0].quantityChanged, 3);
+
+  const retried = await managerAgent.patch(url).send({ status: "received" });
+  assert.equal(retried.status, 200);
+  assert.deepEqual(await db.collection("inventories").findOne({ storeId: returnStoreId, variantId }), inventoryAfterFailure);
+  assert.deepEqual(await db.collection("inventory_logs").find({ returnId, variantId }).toArray(), logsAfterFailure);
   const stored = await db.collection("returns").findOne({ _id: returnId });
   assert.deepEqual(stored.history.map(({ status }) => status), ["requested", "approved", "received"]);
 });

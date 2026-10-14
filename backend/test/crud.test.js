@@ -119,6 +119,34 @@ test("customer cannot use admin CRUD endpoints", async () => {
   assert.equal(response.status, 403);
 });
 
+test("admin write role boundaries reject anonymous and non-authorized staff without mutation", async () => {
+  const productsBefore = await db.collection("products").countDocuments();
+  const anonymousProductWrite = await request(app).post("/api/admin/products").send({ name: "Anonymous Product" });
+  assert.equal(anonymousProductWrite.status, 401);
+  assert.equal(await db.collection("products").countDocuments(), productsBefore);
+
+  const productsBeforeWarehouse = await db.collection("products").countDocuments();
+  const warehouseProductWrite = await warehouseAgent.post("/api/admin/products").send({ name: "Warehouse Product" });
+  assert.equal(warehouseProductWrite.status, 403);
+  assert.equal(await db.collection("products").countDocuments(), productsBeforeWarehouse);
+
+  const inventoryBefore = await db.collection("inventories").findOne({ storeId, variantId });
+  const inventoryLogsBefore = await db.collection("inventory_logs").countDocuments({ storeId, variantId });
+  const salesAdjustment = await salesAgent.post("/api/admin/stock-adjustments").send({ storeId: storeId.toHexString(), variantId: variantId.toHexString(), quantity: 1, note: "Denied sales adjustment" });
+  assert.equal(salesAdjustment.status, 403);
+  assert.deepEqual(await db.collection("inventories").findOne({ storeId, variantId }), inventoryBefore);
+  assert.equal(await db.collection("inventory_logs").countDocuments({ storeId, variantId }), inventoryLogsBefore);
+  const customerAdjustment = await customerAgent.post("/api/admin/stock-adjustments").send({ storeId: storeId.toHexString(), variantId: variantId.toHexString(), quantity: 1, note: "Denied customer adjustment" });
+  assert.equal(customerAdjustment.status, 403);
+  assert.deepEqual(await db.collection("inventories").findOne({ storeId, variantId }), inventoryBefore);
+  assert.equal(await db.collection("inventory_logs").countDocuments({ storeId, variantId }), inventoryLogsBefore);
+
+  const deliveriesBefore = await db.collection("deliveries").countDocuments();
+  const customerDelivery = await customerAgent.post("/api/admin/deliveries").send({ orderId: shippedOrderId.toHexString(), storeId: storeId.toHexString(), deliveryAddress: "Denied delivery" });
+  assert.equal(customerDelivery.status, 403);
+  assert.equal(await db.collection("deliveries").countDocuments(), deliveriesBefore);
+});
+
 test("manager can CRUD vouchers and validate only active records", async () => {
   const created = await managerAgent.post("/api/admin/vouchers").send({
     code: "CRUD10",
@@ -168,6 +196,9 @@ test("promotion CRUD soft-deactivates the promotion", async () => {
   const deleted = await managerAgent.delete(`/api/admin/promotions/${created.body.data.id}`);
   assert.equal(deleted.status, 200);
   assert.equal(deleted.body.data.isActive, false);
+  const persisted = await db.collection("promotions").findOne({ _id: new ObjectId(created.body.data.id) });
+  assert.ok(persisted);
+  assert.equal(persisted.isActive, false);
 });
 
 test("delivery and return status updates enforce transitions", async () => {

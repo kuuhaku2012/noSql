@@ -77,6 +77,9 @@ test("manager has full CRUD for catalog stores", async () => {
 test("only manager can create, update, and deactivate users", async () => {
   const denied = await customerAgent.post("/api/admin/users").send({ email: "denied-entity@test.local", password: "Demo@123", fullName: "Denied", role: "customer" });
   assert.equal(denied.status, 403);
+  const salesDenied = await salesAgent.post("/api/admin/users").send({ email: "sales-denied-entity@test.local", password: "Demo@123", fullName: "Denied Sales", role: "customer" });
+  assert.equal(salesDenied.status, 403);
+  assert.equal(await db.collection("users").countDocuments({ email: "sales-denied-entity@test.local" }), 0);
   const invalidActive = await managerAgent.post("/api/admin/users").send({ email: "invalid-active@test.local", password: "Demo@123", fullName: "Invalid Active", role: "customer", isActive: "false" });
   assert.equal(invalidActive.status, 400);
   const created = await managerAgent.post("/api/admin/users").send({ email: "created-entity@test.local", password: "Demo@123", fullName: "Created Entity", role: "customer", phone: "0900000011" });

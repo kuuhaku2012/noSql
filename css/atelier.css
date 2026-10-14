@@ -26,33 +26,6 @@
 .hero-copy, .hero-visual { position: relative; z-index: 1; }
 .hero-copy { z-index: 2; animation: hero-copy-enter .6s cubic-bezier(.22,.8,.28,1) both; }
 .hero-visual { overflow: visible; }
-.hero-visual::after {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  right: auto;
-  bottom: 0;
-  left: -140px;
-  width: clamp(340px, 32vw, 380px);
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--hero-bg) 32%, transparent) 45%, transparent);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 18%, #000 44%, transparent 72%);
-  mask-image: linear-gradient(90deg, transparent 0%, #000 18%, #000 44%, transparent 72%);
-  pointer-events: none;
-}
-@media (max-width: 980px) {
-  .hero-visual::after {
-    inset: 0 0 auto;
-    left: 0;
-    width: auto;
-    height: 30%;
-    background: linear-gradient(180deg, var(--hero-bg), transparent);
-    -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 100%);
-    mask-image: linear-gradient(180deg, #000 0%, transparent 100%);
-  }
-}
 .hero {
   display: block;
   min-height: 640px;
@@ -81,6 +54,19 @@
   transform: scale(1.04);
   animation: none;
 }
+.hero-visual::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset: 0 auto 0 54%;
+  width: clamp(190px, 28vw, 340px);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--hero-bg) 20%, transparent) 48%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 24%, #000 72%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 24%, #000 72%, transparent 100%);
+  pointer-events: none;
+}
 .hero-visual::after {
   inset: 0;
   left: 0;
@@ -97,6 +83,14 @@
   .hero-copy {
     min-height: min(640px, calc(100svh - var(--header)));
     padding: 72px 22px 58px;
+  }
+  .hero-visual::before {
+    inset: 0 0 auto;
+    width: auto;
+    height: 26%;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--hero-bg) 38%, transparent), transparent);
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 0%, transparent 100%);
   }
   .hero-visual::after {
     background: linear-gradient(180deg, color-mix(in srgb, var(--hero-bg) 88%, transparent), color-mix(in srgb, var(--hero-bg) 40%, transparent) 60%, transparent);

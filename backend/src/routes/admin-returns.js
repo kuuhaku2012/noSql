@@ -13,7 +13,14 @@ function serialize(item) {
 async function restockReceivedReturn(db, record, actorId) {
   const order = await db.collection("orders").findOne({ _id: record.orderId });
   if (!order?.storeId) throw new HttpError(409, "RETURN_STOCK_UNAVAILABLE", "The order has no store inventory reference");
+  const itemsByVariant = new Map();
   for (const item of record.items || []) {
+    const key = String(item.variantId);
+    const existing = itemsByVariant.get(key);
+    if (existing) existing.quantity += item.quantity;
+    else itemsByVariant.set(key, { variantId: item.variantId, quantity: item.quantity });
+  }
+  for (const item of itemsByVariant.values()) {
     const now = new Date();
     const filter = { storeId: order.storeId, variantId: item.variantId, receivedReturnIds: { $ne: record._id } };
     const result = await db.collection("inventories").updateOne(filter, {
@@ -23,7 +30,14 @@ async function restockReceivedReturn(db, record, actorId) {
     });
     if (!result.matchedCount) {
       const current = await db.collection("inventories").findOne({ storeId: order.storeId, variantId: item.variantId });
-      if (current?.receivedReturnIds?.some((returnId) => String(returnId) === String(record._id))) continue;
+      if (current?.receivedReturnIds?.some((returnId) => String(returnId) === String(record._id))) {
+        const logs = db.collection("inventory_logs");
+        const existingLog = await logs.findOne({ returnId: record._id, variantId: item.variantId });
+        if (!existingLog) {
+          await logs.insertOne({ inventoryId: current._id, storeId: order.storeId, variantId: item.variantId, changeType: "return", quantityChanged: item.quantity, returnId: record._id, note: `Restock received return ${record._id}`, createdAt: now, createdByUserId: actorId });
+        }
+        continue;
+      }
       throw new HttpError(409, "RETURN_STOCK_UNAVAILABLE", "Inventory row not found for the returned item");
     }
     if (result.modifiedCount) {

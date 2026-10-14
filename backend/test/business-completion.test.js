@@ -154,6 +154,95 @@ test("appointments reject invalid time ranges and duplicate active bookings", as
   assert.equal(duplicate.body.error.code, "APPOINTMENT_SLOT_UNAVAILABLE");
 });
 
+test("support appointment ownership denies another customer's reads cancellation and review without mutation", async () => {
+  const created = await customerAgent.post("/api/appointments").send({
+    appointmentDate: "2027-04-11", startTime: "12:00", endTime: "13:00", consultationType: "skincare"
+  });
+  assert.equal(created.status, 201);
+  const id = new ObjectId(created.body.data.id);
+  const appointments = db.collection("appointments");
+  const original = await appointments.findOne({ _id: id });
+  const otherList = await otherCustomerAgent.get("/api/appointments");
+  assert.equal(otherList.status, 200);
+  assert.equal(otherList.body.data.some((item) => item.id === String(id)), false);
+  assert.equal((await otherCustomerAgent.get(`/api/appointments/${id}`)).status, 404);
+  assert.deepEqual(await appointments.findOne({ _id: id }), original);
+  assert.equal((await otherCustomerAgent.patch(`/api/appointments/${id}`).send({ status: "cancelled" })).status, 404);
+  assert.deepEqual(await appointments.findOne({ _id: id }), original);
+  assert.equal((await otherCustomerAgent.delete(`/api/appointments/${id}`)).status, 404);
+  assert.deepEqual(await appointments.findOne({ _id: id }), original);
+  assert.equal((await customerAgent.patch(`/api/appointments/${id}`).send({ status: "confirmed" })).status, 403);
+  assert.deepEqual(await appointments.findOne({ _id: id }), original);
+  for (const status of ["confirmed", "completed"]) {
+    assert.equal((await salesAgent.patch(`/api/appointments/${id}`).send({ status })).status, 200);
+  }
+  const completed = await appointments.findOne({ _id: id });
+  const reviewPayload = { rating: 5, comment: "Ownership check" };
+  assert.equal((await otherCustomerAgent.post(`/api/appointments/${id}/reviews`).send(reviewPayload)).status, 404);
+  assert.equal(await db.collection("consultation_reviews").countDocuments({ consultationId: id }), 0);
+  assert.deepEqual(await appointments.findOne({ _id: id }), completed);
+  assert.equal((await customerAgent.post(`/api/appointments/${id}/reviews`).send(reviewPayload)).status, 201);
+  const reviews = await db.collection("consultation_reviews").find({ consultationId: id }).toArray();
+  assert.equal((await customerAgent.post(`/api/appointments/${id}/reviews`).send(reviewPayload)).status, 409);
+  assert.deepEqual(await db.collection("consultation_reviews").find({ consultationId: id }).toArray(), reviews);
+});
+
+test("support review ownership and moderation denials preserve the persisted review", async () => {
+  const product = await db.collection("product_variants").findOne({ _id: variantId });
+  const productId = product.productId;
+  const created = await customerAgent.post(`/api/products/${productId}/reviews`).send({ rating: 5, comment: "Owner review" });
+  assert.equal(created.status, 201);
+  const id = new ObjectId(created.body.data.id);
+  const reviews = db.collection("reviews");
+  const original = await reviews.findOne({ _id: id });
+  assert.equal((await otherCustomerAgent.patch(`/api/reviews/${id}`).send({ rating: 1, comment: "Other customer" })).status, 404);
+  assert.deepEqual(await reviews.findOne({ _id: id }), original);
+  assert.equal((await customerAgent.patch(`/api/reviews/${id}`).send({ status: "approved" })).status, 403);
+  assert.deepEqual(await reviews.findOne({ _id: id }), original);
+  assert.equal((await request(app).get(`/api/products/${productId}/reviews`)).body.data.length, 0);
+  assert.equal((await salesAgent.patch(`/api/reviews/${id}`).send({ status: "approved" })).status, 200);
+  assert.equal((await request(app).get(`/api/products/${productId}/reviews`)).body.data.length, 1);
+  const approved = await reviews.findOne({ _id: id });
+  assert.equal((await customerAgent.patch(`/api/reviews/${id}`).send({ comment: "Edit after moderation" })).status, 409);
+  assert.deepEqual(await reviews.findOne({ _id: id }), approved);
+  assert.equal((await salesAgent.patch(`/api/reviews/${id}`).send({ status: "hidden" })).status, 200);
+  assert.equal((await request(app).get(`/api/products/${productId}/reviews`)).body.data.length, 0);
+});
+
+test("support wishlist privacy and voucher claims bind effects to the authenticated customer", async () => {
+  const customer = await db.collection("users").findOne({ email: "customer-completion@test.local" });
+  const other = await db.collection("users").findOne({ email: "other-customer-completion@test.local" });
+  const variant = await db.collection("product_variants").findOne({ _id: variantId });
+  const saved = await customerAgent.put("/api/wishlist").send({ items: [{ productId: String(variant.productId) }] });
+  assert.equal(saved.status, 200);
+  const original = await db.collection("wishlists").findOne({ userId: customer._id });
+  const otherList = await otherCustomerAgent.get(`/api/wishlist?userId=${customer._id}`);
+  assert.equal(otherList.status, 200);
+  assert.equal(otherList.body.data.userId, String(other._id));
+  assert.deepEqual(otherList.body.data.items, []);
+  assert.equal((await otherCustomerAgent.delete(`/api/wishlist/items/${variant.productId}`)).status, 404);
+  assert.deepEqual(await db.collection("wishlists").findOne({ userId: customer._id }), original);
+  assert.equal((await otherCustomerAgent.put("/api/wishlist").send({ userId: String(customer._id), items: [] })).status, 200);
+  assert.deepEqual(await db.collection("wishlists").findOne({ userId: customer._id }), original);
+  const voucherId = new ObjectId();
+  await db.collection("vouchers").insertOne({
+    _id: voucherId, code: "TASK3CLAIM", isActive: true,
+    startDate: new Date("2026-01-01"), endDate: new Date("2027-12-31")
+  });
+  assert.equal((await customerAgent.post("/api/vouchers/claim").send({ code: "TASK3CLAIM" })).status, 201);
+  const claim = await db.collection("user_vouchers").findOne({ userId: customer._id, voucherId });
+  assert.equal((await customerAgent.post("/api/vouchers/claim").send({ code: "TASK3CLAIM" })).status, 409);
+  assert.equal(await db.collection("user_vouchers").countDocuments({ userId: customer._id, voucherId }), 1);
+  assert.deepEqual(await db.collection("user_vouchers").findOne({ userId: customer._id, voucherId }), claim);
+  const otherVouchers = await otherCustomerAgent.get(`/api/vouchers/mine?userId=${customer._id}`);
+  assert.equal(otherVouchers.status, 200);
+  assert.deepEqual(otherVouchers.body.data, []);
+  const otherClaim = await otherCustomerAgent.post("/api/vouchers/claim").send({ code: "TASK3CLAIM", userId: String(customer._id) });
+  assert.equal(otherClaim.status, 201);
+  assert.equal(otherClaim.body.data.userId, String(other._id));
+  assert.deepEqual(await db.collection("user_vouchers").findOne({ userId: customer._id, voucherId }), claim);
+});
+
 test("customer addresses accept structured regions and legacy addresses remain readable", async () => {
   const customer = await db.collection("users").findOne({ email: "customer-completion@test.local" });
   const updated = await customerAgent.patch("/api/customers/me").send({ fullName: "Updated Customer", phone: "0900000001", skinType: "sensitive", role: "manager" });
@@ -275,8 +364,18 @@ test("customer returns are owner-scoped, cumulative, and restock once on receipt
 
   const otherRequest = await otherCustomerAgent.post("/api/returns").send({ orderId, reason: "Not my order", items: [{ variantId: variantId.toHexString(), quantity: 1 }] });
   assert.equal(otherRequest.status, 404);
+  assert.equal(await db.collection("returns").countDocuments({ orderId: new ObjectId(orderId) }), 0);
   const returned = await customerAgent.post("/api/returns").send({ orderId, reason: "Damaged packaging", items: [{ variantId: variantId.toHexString(), quantity: 2 }] });
   assert.equal(returned.status, 201);
+  const returnId = new ObjectId(returned.body.data.id);
+  const originalReturn = await db.collection("returns").findOne({ _id: returnId });
+  const otherReturns = await otherCustomerAgent.get(`/api/returns?userId=${originalReturn.userId}`);
+  assert.equal(otherReturns.status, 200);
+  assert.equal(otherReturns.body.data.some((item) => item.id === String(returnId)), false);
+  const deniedUpdate = await otherCustomerAgent.patch(`/api/admin/returns/${returnId}`).send({ status: "approved" });
+  assert.equal(deniedUpdate.status, 403);
+  assert.deepEqual(await db.collection("returns").findOne({ _id: returnId }), originalReturn);
+  assert.equal(await db.collection("inventory_logs").countDocuments({ returnId }), 0);
   const excess = await customerAgent.post("/api/returns").send({ orderId, reason: "Another request", items: [{ variantId: variantId.toHexString(), quantity: 1 }] });
   assert.equal(excess.status, 409);
 
@@ -285,8 +384,14 @@ test("customer returns are owner-scoped, cumulative, and restock once on receipt
   const received = await managerAgent.patch(`/api/admin/returns/${returned.body.data.id}`).send({ status: "received" });
   assert.equal(received.status, 200);
   assert.equal((await db.collection("inventories").findOne({ storeId, variantId })).stockQuantity, before.stockQuantity);
+  const logs = await db.collection("inventory_logs").find({ returnId }).toArray();
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].quantityChanged, 2);
+  const receivedReturn = await db.collection("returns").findOne({ _id: returnId });
   assert.equal((await managerAgent.patch(`/api/admin/returns/${returned.body.data.id}`).send({ status: "received" })).status, 200);
   assert.equal((await db.collection("inventories").findOne({ storeId, variantId })).stockQuantity, before.stockQuantity);
+  assert.deepEqual(await db.collection("inventory_logs").find({ returnId }).toArray(), logs);
+  assert.deepEqual(await db.collection("returns").findOne({ _id: returnId }), receivedReturn);
 });
 
 test("delivered shipment advances its order to delivered", async () => {
@@ -310,6 +415,18 @@ test("delivered shipment advances its order to delivered", async () => {
   }
   assert.equal(status, "delivered");
   assert.equal((await customerAgent.get(`/api/orders/${orderId}`)).body.data.orderStatus, "delivered");
+  const deliveryId = new ObjectId(delivery.body.data.id);
+  const persistedDelivery = await db.collection("deliveries").findOne({ _id: deliveryId });
+  const persistedOrder = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+  const history = await db.collection("order_histories").find({ orderId: new ObjectId(orderId) }).toArray();
+  assert.equal(persistedDelivery.history.length, 5);
+  assert.equal(history.filter((item) => item.newStatus === "delivered").length, 1);
+  const replay = await warehouseAgent.patch(`/api/admin/deliveries/${deliveryId}`).send({ status: "delivered" });
+  assert.equal(replay.status, 409);
+  assert.equal(replay.body.error.code, "INVALID_STATUS_TRANSITION");
+  assert.deepEqual(await db.collection("deliveries").findOne({ _id: deliveryId }), persistedDelivery);
+  assert.deepEqual(await db.collection("orders").findOne({ _id: new ObjectId(orderId) }), persistedOrder);
+  assert.deepEqual(await db.collection("order_histories").find({ orderId: new ObjectId(orderId) }).toArray(), history);
 });
 
 test("invalid later receipt line cannot leave earlier stock partially changed", async () => {
