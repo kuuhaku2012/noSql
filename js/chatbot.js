@@ -2,7 +2,16 @@
   const chatbot = factory();
   if (typeof module === "object" && module.exports) module.exports = chatbot;
   if (root) root.MBChatbot = chatbot;
+  if (root && root.document) {
+    const mount = () => chatbot.mount(root.document);
+    if (root.document.readyState === "loading") {
+      root.document.addEventListener("DOMContentLoaded", mount, { once: true });
+    } else {
+      mount();
+    }
+  }
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
+  const allowedLinks = new Set(["products.html", "cart.html", "warranty.html", "consultation.html"]);
   const intents = [
     {
       intent: "products",
@@ -75,8 +84,137 @@
     return paragraph;
   }
 
-  function mount() {
-    return false;
+  function mount(document) {
+    if (!document || !document.body || document.body.dataset?.page === "admin") return false;
+    if (document.querySelector("#mb-chatbot-panel")) return false;
+
+    const makeElement = (tagName, className, text) => {
+      const element = document.createElement(tagName);
+      if (className) element.className = className;
+      if (text !== undefined) element.textContent = text;
+      return element;
+    };
+    const setAttributes = (element, attributes) => {
+      for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+      return element;
+    };
+
+    const launcher = setAttributes(makeElement("button", "chatbot-launcher", "Chat với Maison Belle"), {
+      type: "button",
+      "aria-controls": "mb-chatbot-panel",
+      "aria-expanded": "false"
+    });
+    const panel = setAttributes(makeElement("section", "chatbot-panel"), {
+      id: "mb-chatbot-panel",
+      role: "dialog",
+      "aria-label": "Trợ lý Maison Belle"
+    });
+    panel.hidden = true;
+
+    const panelHeader = makeElement("div", "chatbot-header");
+    const title = makeElement("p", "chatbot-title", "Maison Belle · Hỗ trợ");
+    const close = setAttributes(makeElement("button", "chatbot-close", "×"), {
+      type: "button",
+      "aria-label": "Đóng trò chuyện"
+    });
+    panelHeader.append(title);
+    panelHeader.append(close);
+
+    const log = setAttributes(makeElement("div", "chatbot-log"), {
+      role: "log",
+      "aria-live": "polite",
+      "aria-relevant": "additions"
+    });
+    appendMessage(log, "Xin chào! Mình có thể giúp bạn tìm thông tin về sản phẩm, đơn hàng và chính sách cửa hàng.", "bot");
+
+    const suggestions = makeElement("div", "chatbot-suggestions");
+    const prompts = [
+      { text: "Sản phẩm cho da khô", className: "chatbot-suggestion-products" },
+      { text: "Phí giao hàng", className: "chatbot-suggestion-shipping" },
+      { text: "Theo dõi đơn hàng", className: "chatbot-suggestion-orders" },
+      { text: "Đổi trả", className: "chatbot-suggestion-returns" },
+      { text: "Đặt lịch tư vấn", className: "chatbot-suggestion-consultation" }
+    ];
+
+    const answerQuestion = (question) => {
+      const answer = replyFor(question);
+      appendMessage(log, answer.text, "bot");
+      if (answer.link && allowedLinks.has(answer.link.href)) {
+        const link = setAttributes(makeElement("a", "chatbot-answer-link", answer.link.label), {
+          href: answer.link.href
+        });
+        log.append(link);
+      }
+      log.scrollTop = log.scrollHeight;
+    };
+
+    for (const prompt of prompts) {
+      const button = setAttributes(makeElement("button", `chatbot-suggestion ${prompt.className}`, prompt.text), {
+        type: "button",
+        "aria-label": `Câu hỏi gợi ý: ${prompt.text}`
+      });
+      button.addEventListener("click", () => {
+        appendMessage(log, prompt.text, "user");
+        answerQuestion(prompt.text);
+      });
+      suggestions.append(button);
+    }
+
+    const form = makeElement("form", "chatbot-form");
+    const label = setAttributes(makeElement("label", "chatbot-label", "Câu hỏi"), {
+      for: "mb-chatbot-question"
+    });
+    const input = setAttributes(makeElement("input", "chatbot-question"), {
+      id: "mb-chatbot-question",
+      name: "question",
+      type: "text",
+      maxlength: "500",
+      autocomplete: "off",
+      required: ""
+    });
+    input.placeholder = "Nhập câu hỏi của bạn";
+    const submit = setAttributes(makeElement("button", "chatbot-send", "Gửi"), {
+      type: "submit"
+    });
+    form.append(label);
+    form.append(input);
+    form.append(submit);
+
+    const closePanel = () => {
+      panel.hidden = true;
+      launcher.setAttribute("aria-expanded", "false");
+      launcher.focus();
+    };
+    const openPanel = () => {
+      panel.hidden = false;
+      launcher.setAttribute("aria-expanded", "true");
+      input.focus();
+    };
+
+    launcher.addEventListener("click", () => {
+      if (panel.hidden) openPanel();
+      else closePanel();
+    });
+    close.addEventListener("click", closePanel);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !panel.hidden) closePanel();
+    });
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const question = String(input.value ?? "").trim();
+      if (!question) return;
+      appendMessage(log, question, "user");
+      input.value = "";
+      answerQuestion(question);
+    });
+
+    panel.append(panelHeader);
+    panel.append(log);
+    panel.append(suggestions);
+    panel.append(form);
+    document.body.append(launcher);
+    document.body.append(panel);
+    return true;
   }
 
   return { replyFor, appendMessage, mount };

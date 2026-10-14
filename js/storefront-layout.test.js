@@ -6,6 +6,27 @@ const { join } = require("node:path");
 const root = join(__dirname, "..");
 const customerPages = ["index.html", "products.html", "product.html", "cart.html", "account.html", "warranty.html", "offers.html", "brands.html", "about.html"];
 
+test("customer pages load one FAQ widget after app.js and admin does not load it", async () => {
+  for (const page of [...customerPages, "consultation.html"]) {
+    const html = await readFile(join(root, page), "utf8");
+    assert.equal((html.match(/js\/chatbot\.js/g) || []).length, 1, `${page} must load exactly one FAQ widget`);
+    assert.ok(html.indexOf("js/chatbot.js") > html.indexOf("js/app.js"), `${page} must load the widget after app.js`);
+  }
+
+  const admin = await readFile(join(root, "admin.html"), "utf8");
+  assert.doesNotMatch(admin, /js\/chatbot\.js/, "admin must not load customer support chat");
+});
+
+test("FAQ widget styling remains usable on narrow screens and with reduced motion", async () => {
+  const css = await readFile(join(root, "css/flows.css"), "utf8");
+  assert.match(css, /\.chatbot-panel\s*\{[^}]*width:\s*min\(24rem,\s*calc\(100vw\s*-\s*2rem\)\)/s);
+  assert.match(css, /\.chatbot-panel\s*\{[^}]*max-height:\s*min\(34rem,\s*calc\(100dvh\s*-\s*6rem\)\)/s);
+  assert.match(css, /\.chatbot-log\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /\.chatbot-launcher:focus-visible[\s\S]*?outline:\s*3px/);
+  assert.match(css, /@media\s*\(max-width:\s*480px\)[\s\S]*?\.chatbot-panel/);
+  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.chatbot-launcher[\s\S]*?animation:\s*none/s);
+});
+
 test("customer pages share accessible search, account, and cart header actions", async () => {
   for (const page of customerPages) {
     const html = await readFile(join(root, page), "utf8");
