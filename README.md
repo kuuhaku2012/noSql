@@ -40,6 +40,10 @@ Backend tự nạp `backend/.env` qua `dotenv/config` khi khởi động. Điề
 
 Không đưa thông tin SMTP hoặc secret vào mã nguồn, log hay Git. Khi cấu hình chưa đủ, API trả `EMAIL_NOT_CONFIGURED` thay vì giả vờ đã gửi thư. Với yêu cầu gửi mã đặt lại mật khẩu, phản hồi `202` chỉ có nghĩa là hệ thống đã tiếp nhận yêu cầu; nó **không xác nhận email đã được gửi**. Nếu không nhận được mã, hãy thử lại sau thời gian chờ gửi lại.
 
+### Dữ liệu demo MongoDB
+
+Trong `backend/`, chạy `pnpm seed` để tạo bộ dữ liệu demo có thể tái tạo: 24 sản phẩm, 24 biến thể, 24 bản ghi tồn kho, 7 đánh giá và 2 mức phí giao hàng mẫu. Seed thay thế các bản ghi `isDemo: true` trong collection do seed quản lý; dữ liệu không gắn cờ demo được giữ nguyên. Phí giao hàng được thêm theo kiểu chỉ tạo nếu chưa có, nên cấu hình đã chỉnh trong admin không bị ghi đè. Chỉ chạy trên database dev/test mà bạn chủ động chọn; không commit file `.env` hoặc thư mục dữ liệu vật lý MongoDB vào Git.
+
 ## Kiểm thử
 
 ```powershell

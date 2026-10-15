@@ -39,14 +39,40 @@ export function buildDemoData() {
     ["toner", "Centella Toner Essence", "SKIN1004", "skincare", 255000],
     ["eye", "Calm Eye Cream", "MAISON BELLE", "skincare", 310000]
   ];
-  const products = names.map(([slug, name, brand, category, price]) => ({
+  const additionalNames = [
+    ["demo-extra-barrier-cream", "Kem dưỡng phục hồi hàng rào da 50ml", "MAISON BELLE", "skincare", 395000, "50ml", "img/skincare.jpg", ["dry", "sensitive"]],
+    ["demo-extra-centella-serum", "Tinh chất rau má làm dịu 50ml", "SKIN1004", "skincare", 310000, "50ml", "img/skincare.jpg", ["normal", "sensitive"]],
+    ["demo-extra-cleansing-oil", "Dầu tẩy trang dịu nhẹ 200ml", "COSRX", "skincare", 275000, "200ml", "img/skincare.jpg", ["normal", "dry"]],
+    ["demo-extra-vitamin-c-serum", "Tinh chất Vitamin C rạng rỡ 30ml", "MAISON BELLE", "skincare", 420000, "30ml", "img/skincare.jpg", ["normal", "oily"]],
+    ["demo-extra-green-tea-toner", "Nước cân bằng trà xanh 150ml", "COCOON", "skincare", 215000, "150ml", "img/skincare.jpg", ["oily", "combination"]],
+    ["demo-extra-panthenol-lotion", "Sữa dưỡng Panthenol phục hồi 100ml", "SKIN1004", "skincare", 360000, "100ml", "img/skincare.jpg", ["dry", "sensitive"]],
+    ["demo-extra-soft-blur-cushion", "Phấn nước Soft Blur 15g", "MAISON BELLE", "makeup", 450000, "15g · 21N", "img/makeup.jpg", ["all"]],
+    ["demo-extra-rose-lip-tint", "Son tint màu hoa hồng 4.5g", "COSRX", "makeup", 190000, "4.5g", "img/makeup.jpg", ["all"]],
+    ["demo-extra-dewy-lip-balm", "Son dưỡng bóng mềm 3.5g", "MAISON BELLE", "makeup", 160000, "3.5g", "img/makeup.jpg", ["all"]],
+    ["demo-extra-coffee-body-scrub", "Tẩy tế bào chết cà phê 200g", "COCOON", "body", 185000, "200g", "img/body.jpg", ["all"]],
+    ["demo-extra-coffee-body-lotion", "Dưỡng thể cà phê 250ml", "COCOON", "body", 265000, "250ml", "img/body.jpg", ["all"]],
+    ["demo-extra-lotus-hand-cream", "Kem dưỡng tay hoa sen 50ml", "COCOON", "body", 95000, "50ml", "img/body.jpg", ["all"]]
+  ];
+  names.push(...additionalNames);
+  const supplementalBatch = "codex-demo-20261015";
+  const products = names.map(([slug, name, brand, category, price], index) => ({
     _id: id(), slug, name, brandId: brandByName[brand], categoryId: categoryByName[category],
-    description: `${name} - sản phẩm demo của Maison Belle`, ingredients: "Demo ingredients", howToUse: "Dùng theo hướng dẫn trên bao bì", isActive: true, isDemo: true, createdAt: now, updatedAt: now
+    description: index < 12 ? `${name} - sản phẩm demo của Maison Belle` : `${name} — sản phẩm demo được bổ sung cho Maison Belle.`,
+    ingredients: index < 12 ? "Demo ingredients" : "Thành phần mô phỏng dùng cho dữ liệu demo.",
+    howToUse: index < 12 ? "Dùng theo hướng dẫn trên bao bì" : "Sử dụng theo hướng dẫn trên bao bì sản phẩm.",
+    skinTypes: names[index][7] || ["normal"], thumbnailUrl: names[index][6] || "img/skincare.jpg",
+    isActive: true, isDemo: true, createdAt: now, updatedAt: now,
+    ...(index >= 12 ? { generationBatch: supplementalBatch } : {})
   }));
   const variants = products.map((product, index) => ({
-    _id: id(), productId: product._id, sku: `DEMO-${String(index + 1).padStart(3, "0")}`, barcode: `893000000${String(index + 1).padStart(3, "0")}`, colorName: null, volume: "30ml", originalPrice: names[index][4] + 50000, retailPrice: names[index][4], imageUrl: "img/skincare.jpg", isActive: true, isDemo: true
+    _id: id(), productId: product._id,
+    sku: index < 12 ? `DEMO-${String(index + 1).padStart(3, "0")}` : `MB-EXTRA-2026-${String(index - 11).padStart(3, "0")}`,
+    barcode: index < 12 ? `893000000${String(index + 1).padStart(3, "0")}` : `89300008${String(index - 11).padStart(5, "0")}`,
+    colorName: null, volume: names[index][5] || "30ml",
+    originalPrice: names[index][4] + 50000, retailPrice: names[index][4],
+    imageUrl: names[index][6] || "img/skincare.jpg", isActive: true, isDemo: true,
+    ...(index >= 12 ? { generationBatch: supplementalBatch } : {})
   }));
-  for (const product of products) Object.assign(product, { skinTypes: ["normal"], thumbnailUrl: "img/skincare.jpg" });
   for (const variant of variants) Object.assign(variant, { colorCode: null });
   const users = [
     ["customer@maisonbelle.local", "Khách demo", "customer"],
@@ -54,7 +80,12 @@ export function buildDemoData() {
     ["warehouse@maisonbelle.local", "Nhân viên kho demo", "warehouse"],
     ["manager@maisonbelle.local", "Quản lý demo", "manager"]
   ].map(([email, fullName, roleName]) => ({ _id: id(), email, fullName, role: roleName, roleId: role[roleName], passwordHash: bcrypt.hashSync("Demo@123", 10), avatarUrl: null, isActive: true, isDemo: true, createdAt: now }));
-  const inventories = variants.map((variant) => ({ _id: id(), storeId, variantId: variant._id, stockQuantity: 50, reservedQuantity: 0, version: 1, isDemo: true, updatedAt: now }));
+  const inventories = variants.map((variant, index) => ({
+    _id: id(), storeId, variantId: variant._id,
+    stockQuantity: index < 12 ? 50 : 25 + ((index - 12) % 5) * 5,
+    reservedQuantity: 0, version: 1, isDemo: true, updatedAt: now,
+    ...(index >= 12 ? { generationBatch: supplementalBatch } : {})
+  }));
   const vouchers = [{ _id: id(), code: "BELLE10", discountType: "percentage", discountValue: 10, minOrderValue: 200000, maxDiscountAmount: 100000, startDate: new Date("2026-01-01"), endDate: new Date("2027-01-01T23:59:59.999Z"), totalUsageLimit: 1000, usedCount: 0, isActive: true, isDemo: true }];
   const promotions = [{ _id: id(), name: "Demo Beauty Week", startDate: new Date("2026-01-01"), endDate: new Date("2027-01-01T23:59:59.999Z"), isActive: true, items: [], isDemo: true, createdAt: now }];
   const consultationId = id();
@@ -64,7 +95,23 @@ export function buildDemoData() {
   const flashSales = [{ _id: id(), name: "Demo Flash Sale", startDate: new Date("2026-01-01"), endDate: new Date("2027-01-01T23:59:59.999Z"), isActive: true, items: [{ variantId: variants[0]._id, promotionPrice: 249000, quantityLimit: 20, soldQuantity: 0, maxQuantityPerUser: 2 }], createdAt: now, updatedAt: now, isDemo: true }];
   const productRecommendations = [{ _id: id(), productId: products[0]._id, recommendedProductId: products[1]._id, rank: 1, reason: "Demo recommendation", isActive: true, createdAt: now, isDemo: true }];
   const productViews = [{ _id: id(), userId: users[0]._id, productId: products[0]._id, viewedAt: now, source: "demo", isDemo: true }];
-  const reviews = [{ _id: id(), userId: users[0]._id, productId: products[0]._id, rating: 5, comment: "Demo product review", status: "approved", isApproved: true, isHidden: false, createdAt: now, updatedAt: now, isDemo: true }];
+  const reviewComments = [
+    "Kết cấu dễ chịu, phù hợp dùng hằng ngày.",
+    "Da mềm hơn sau một thời gian sử dụng.",
+    "Mùi hương nhẹ, đóng gói chỉn chu.",
+    "Sản phẩm demo, trải nghiệm ổn trong tầm giá.",
+    "Dễ dùng trong routine buổi sáng.",
+    "Độ ẩm vừa phải, không gây cảm giác nặng da."
+  ];
+  const reviews = [
+    { _id: id(), userId: users[0]._id, productId: products[0]._id, rating: 5, comment: "Demo product review", status: "approved", isApproved: true, isHidden: false, createdAt: now, updatedAt: now, isDemo: true },
+    ...products.slice(12, 18).map((product, index) => ({
+      _id: `${supplementalBatch}-review-${String(index + 1).padStart(3, "0")}`,
+      userId: users[0]._id, productId: product._id, rating: index === 3 ? 4 : 5,
+      comment: reviewComments[index], status: "approved", isApproved: true, isHidden: false,
+      createdAt: now, updatedAt: now, isDemo: true, generationBatch: supplementalBatch
+    }))
+  ];
   const userBehaviors = [{ _id: id(), userId: users[0]._id, productId: products[0]._id, actionType: "view", metadata: { source: "demo" }, createdAt: now, isDemo: true }];
   const userVouchers = [{ _id: id(), userId: users[0]._id, voucherId: vouchers[0]._id, status: "available", claimedAt: now, usedAt: null, expiresAt: vouchers[0].endDate, isDemo: true }];
   const carts = [{ _id: id(), userId: users[0]._id, items: [{ variantId: variants[0]._id, quantity: 1, size: null }], createdAt: now, updatedAt: now, isDemo: true }];
@@ -77,8 +124,8 @@ export function buildDemoData() {
   const pointHistories = [{ _id: id(), userId: users[0]._id, orderId, type: "earned", points: 100, transactionType: "order", description: "Demo points", createdAt: now, isDemo: true }];
   const userAddresses = [{ _id: id(), userId: users[0]._id, receiverName: users[0].fullName, receiverPhone: "0900000000", fullAddress: "Demo address", isDefault: true, createdAt: now, updatedAt: now, isDemo: true }];
   const shippingRates = [
-    { code: "hcm-demo", regionName: "Hồ Chí Minh (demo)", fee: 25000, currency: "VND", isActive: true, isDemo: true, createdAt: now, updatedAt: now },
-    { code: "hn-demo", regionName: "Hà Nội (demo)", fee: 30000, currency: "VND", isActive: true, isDemo: true, createdAt: now, updatedAt: now }
+    { code: "hcm-demo", regionName: "Hồ Chí Minh (demo)", fee: 25000, currency: "VND", isActive: true, isDemo: true, generationBatch: supplementalBatch, createdAt: now, updatedAt: now },
+    { code: "hn-demo", regionName: "Hà Nội (demo)", fee: 30000, currency: "VND", isActive: true, isDemo: true, generationBatch: supplementalBatch, createdAt: now, updatedAt: now }
   ];
   const payments = [{ _id: id(), orderId, method: "cod", status: "paid", amount: orders[0].finalAmount, isMock: true, createdAt: now, updatedAt: now, isDemo: true }];
   const invoices = [{ _id: id(), orderId, invoiceCode: "INV-DEMO-ORDER-001", status: "issued", amount: orders[0].finalAmount, isMock: true, createdAt: now, updatedAt: now, isDemo: true }];
