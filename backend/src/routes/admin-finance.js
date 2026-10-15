@@ -34,14 +34,14 @@ export function adminFinanceRouter({ db }) {
 
   router.post("/payments", async (req, res) => {
     validateBody({ orderId: { required: true }, method: { type: "string" }, amount: { type: "nonNegativeNumber" } }, req.body);
-    if (req.body.method !== undefined && !["cod", "mock"].includes(req.body.method)) throw new HttpError(400, "VALIDATION_ERROR", "method must be cod or mock");
+    if (req.body.method !== undefined && !["cod", "bank_transfer", "mock"].includes(req.body.method)) throw new HttpError(400, "VALIDATION_ERROR", "method must be cod, bank_transfer, or mock");
     const orderId = toReference(req.body.orderId, "orderId");
     const order = await db.collection("orders").findOne({ _id: orderId });
     if (!order) throw notFound("Order not found");
     if (await payments.findOne({ orderId })) throw new HttpError(409, "PAYMENT_EXISTS", "Payment already exists for this order");
     const now = new Date();
-    const payment = { _id: new ObjectId(), orderId, method: req.body.method || order.paymentMethod || "mock", status: req.body.status || "pending", amount: req.body.amount ?? order.finalAmount, isMock: true, createdAt: now, updatedAt: now, createdByUserId: req.user._id };
-    if (!["cod", "mock"].includes(payment.method)) throw new HttpError(400, "VALIDATION_ERROR", "method must be cod or mock");
+    const payment = { _id: new ObjectId(), orderId, method: req.body.method || order.paymentMethod || "mock", status: req.body.status || "pending", amount: req.body.amount ?? order.finalAmount, isMock: (req.body.method || order.paymentMethod || "mock") === "mock", createdAt: now, updatedAt: now, createdByUserId: req.user._id };
+    if (!["cod", "bank_transfer", "mock"].includes(payment.method)) throw new HttpError(400, "VALIDATION_ERROR", "method must be cod, bank_transfer, or mock");
     if (!["pending", "paid", "failed", "refunded", "void"].includes(payment.status)) throw new HttpError(400, "VALIDATION_ERROR", "payment status is invalid");
     await payments.insertOne(payment);
     res.status(201).json({ data: serialize(payment) });
@@ -86,7 +86,7 @@ export function adminFinanceRouter({ db }) {
     if (!order) throw notFound("Order not found");
     if (await invoices.findOne({ orderId })) throw new HttpError(409, "INVOICE_EXISTS", "Invoice already exists for this order");
     const now = new Date();
-    const invoice = { _id: new ObjectId(), orderId, invoiceCode: req.body.invoiceCode || `INV-${order.orderCode}`, status: req.body.status || "pending", amount: req.body.amount ?? order.finalAmount, isMock: true, createdAt: now, updatedAt: now, createdByUserId: req.user._id };
+    const invoice = { _id: new ObjectId(), orderId, invoiceCode: req.body.invoiceCode || `INV-${order.orderCode}`, status: req.body.status || "pending", amount: req.body.amount ?? order.finalAmount, isMock: order.paymentMethod === "mock", createdAt: now, updatedAt: now, createdByUserId: req.user._id };
     if (!["pending", "issued", "void"].includes(invoice.status)) throw new HttpError(400, "VALIDATION_ERROR", "invoice status is invalid");
     await invoices.insertOne(invoice);
     res.status(201).json({ data: serialize(invoice) });

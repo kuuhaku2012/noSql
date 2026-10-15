@@ -46,7 +46,7 @@ before(async () => {
   await db.collection("product_variants").insertOne({ _id: variantId, productId, sku: "ENTITY-001", retailPrice: 100000, originalPrice: 120000, isActive: true });
   await db.collection("inventories").insertOne({ _id: new ObjectId(), storeId, variantId, stockQuantity: 5, reservedQuantity: 0, version: 1 });
   await db.collection("shipping_rates").insertOne({ _id: new ObjectId(), code: "hcm-demo", regionName: "Hồ Chí Minh (demo)", fee: 25000, currency: "VND", isDemo: true, isActive: true });
-  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
+  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../frontend/", import.meta.url) } });
   managerAgent = await login(manager.email);
   customerAgent = await login(customer.email);
   salesAgent = await login(sales.email);

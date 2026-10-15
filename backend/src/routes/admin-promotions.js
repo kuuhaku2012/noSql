@@ -32,7 +32,7 @@ async function normalizeItems(db, items) {
     if (variants.length !== ids.length) throw new HttpError(404, "VARIANT_NOT_FOUND", "One or more promotion variants were not found");
     const byId = new Map(variants.map((variant) => [String(variant._id), variant]));
     if (normalized.some((item) => item.promotionPrice >= Number(byId.get(String(item.variantId)).retailPrice))) {
-      throw new HttpError(400, "INVALID_PROMOTION_PRICE", "Promotion price must be lower than retail price");
+      throw new HttpError(400, "INVALID_PROMOTION_PRICE", "Giá khuyến mãi phải thấp hơn giá bán hiện tại của tất cả sản phẩm đã chọn.");
     }
   }
   return normalized;

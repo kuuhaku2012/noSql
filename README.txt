@@ -1,14 +1,14 @@
 MAISON BELLE — giao diện cửa hàng mỹ phẩm
 
-Mở index.html bằng trình duyệt. Không cần cài đặt.
+Mở frontend/index.html bằng trình duyệt. Không cần cài đặt.
 
 Trang
-- index.html: trang chủ
-- products.html: danh sách, lọc, tìm kiếm, yêu thích
-- product.html: chi tiết sản phẩm
-- cart.html: giỏ hàng và thanh toán minh họa
-- admin.html: dashboard quản trị
-- css/style.css, js/app.js: giao diện và tương tác dùng chung
+- frontend/index.html: trang chủ
+- frontend/products.html: danh sách, lọc, tìm kiếm, yêu thích
+- frontend/product.html: chi tiết sản phẩm
+- frontend/cart.html: giỏ hàng và thanh toán minh họa
+- frontend/admin.html: dashboard quản trị
+- frontend/css/style.css, frontend/js/app.js: giao diện và tương tác dùng chung
 
 Đã làm thêm
 - Responsive cho điện thoại và máy tính, menu kéo từ trái

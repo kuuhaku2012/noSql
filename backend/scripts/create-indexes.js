@@ -36,6 +36,8 @@ export async function createIndexes(db) {
   await add(c.products, { skinTypes: 1, isActive: 1 });
   await add(c.categories, { slug: 1 }, { unique: true });
   await add(c.categories, { parentCategoryId: 1, isActive: 1 });
+  await add(c.knowledgeArticles, { slug: 1 }, { unique: true, sparse: true });
+  await add(c.knowledgeArticles, { isPublished: 1, priority: -1, updatedAt: -1 });
   await add(c.brands, { code: 1 }, { unique: true, sparse: true });
   await add(c.brands, { slug: 1 }, { unique: true, sparse: true });
   await add(c.stores, { code: 1 }, { unique: true, sparse: true });

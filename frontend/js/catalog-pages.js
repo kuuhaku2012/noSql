@@ -38,7 +38,7 @@
     try {
       const brands = normalizeBrands(await root.MBApi.catalog());
       if (!brands.length) { showState(grid, "empty", "Chưa có thương hiệu đang kinh doanh."); return; }
-      grid.innerHTML = brands.map((brand) => `<a class="brand-card" href="${esc(brandHref(brand))}"><span class="brand-mark">${esc(String(brand.name).slice(0, 1).toUpperCase())}</span><span><b>${esc(brand.name)}</b><small>${esc(brand.origin || brand.code || "Maison Belle selection")}</small></span><strong>Khám phá →</strong></a>`).join("");
+      grid.innerHTML = brands.map((brand) => `<a class="brand-card" href="${esc(brandHref(brand))}"><span class="brand-mark">${esc(String(brand.name).slice(0, 1).toUpperCase())}</span><span><b>${esc(brand.name)}</b><small>${esc(brand.origin || brand.code || "Tuyển chọn Maison Belle")}</small></span><strong>Khám phá →</strong></a>`).join("");
     } catch (error) {
       showState(grid, error.status === 404 ? "notFound" : "error", root.MB?.errorMessage(error) || "Không tải được thương hiệu.", '<button class="outline" type="button" data-catalog-retry>Thử lại</button>');
     }
@@ -54,7 +54,7 @@
         root.MBApi.promotions.list(), root.MBApi.flashSales.list(), root.MBApi.products({ sale: "1", page: 1, limit: 12 })
       ]);
       const offers = normalizeOffers({ promotions: promotionResponse, flashSales: flashSaleResponse });
-      programs.innerHTML = offers.length ? offers.map((item) => `<article class="offer-card ${item.kind === "flashSale" ? "offer-card-flash" : ""}"><span class="eyebrow">${item.kind === "flashSale" ? "FLASH SALE" : "CHƯƠNG TRÌNH ƯU ĐÃI"}</span><h2>${esc(item.name || "Ưu đãi Maison Belle")}</h2><p>${esc(item.description || (item.kind === "flashSale" ? "Số lượng có hạn theo từng phân loại sản phẩm." : "Giá ưu đãi được áp dụng trực tiếp khi đặt hàng."))}</p><div class="offer-meta"><span>${esc(dateRange(item))}</span><b>${esc(item.items?.length || 0)} sản phẩm</b></div></article>`).join("") : `<div class="state state-empty" role="status"><span class="state-mark">✦</span><b>Chưa có chương trình</b><p>Maison Belle sẽ cập nhật ưu đãi mới tại đây.</p></div>`;
+      programs.innerHTML = offers.length ? offers.map((item) => `<article class="offer-card ${item.kind === "flashSale" ? "offer-card-flash" : ""}"><span class="eyebrow">${item.kind === "flashSale" ? "GIẢM GIÁ NHANH" : "CHƯƠNG TRÌNH ƯU ĐÃI"}</span><h2>${esc(item.name || "Ưu đãi Maison Belle")}</h2><p>${esc(item.description || (item.kind === "flashSale" ? "Số lượng có hạn theo từng phân loại sản phẩm." : "Giá ưu đãi được áp dụng trực tiếp khi đặt hàng."))}</p><div class="offer-meta"><span>${esc(dateRange(item))}</span><b>${esc(item.items?.length || 0)} sản phẩm</b></div></article>`).join("") : `<div class="state state-empty" role="status"><span class="state-mark">✦</span><b>Chưa có chương trình</b><p>Maison Belle sẽ cập nhật ưu đãi mới tại đây.</p></div>`;
       const saleProducts = list(productResponse);
       if (!saleProducts.length) showState(products, "empty", "Chưa có sản phẩm đang giảm giá.");
       else if (root.MB?.card) products.innerHTML = saleProducts.map((item) => root.MB.card(item)).join("");

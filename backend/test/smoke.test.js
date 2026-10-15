@@ -4,7 +4,7 @@ import request from "supertest";
 import { createApp } from "../src/app.js";
 
 const stubDb = { collection: () => ({}) };
-const app = createApp({ db: stubDb, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
+const app = createApp({ db: stubDb, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../frontend/", import.meta.url) } });
 
 test("health and static frontend are served", async () => {
   const health = await request(app).get("/api/health");

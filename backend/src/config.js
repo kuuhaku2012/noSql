@@ -72,8 +72,11 @@ export function getConfig(env = process.env) {
     smtpPass: env.SMTP_PASS || "",
     smtpFrom: env.SMTP_FROM || "",
     authCodeSecret: env.AUTH_CODE_SECRET || "",
+    geminiApiKey: env.GEMINI_API_KEY || "",
+    geminiModel: env.GEMINI_MODEL || "gemini-3-flash-preview",
+    geminiTimeoutMs: Number(env.GEMINI_TIMEOUT_MS || 20000),
     trustProxy,
     allowDemoSeed: env.ALLOW_DEMO_SEED === "true",
-    frontendRoot: path.resolve(sourceDir, "../..")
+    frontendRoot: path.resolve(sourceDir, "../../frontend")
   };
 }

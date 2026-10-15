@@ -48,11 +48,11 @@ async function addPromotionPrice(db, variant) {
   const candidates = await db.collection("promotions").find({ isActive: true, startDate: { $lte: now }, "items.variantId": variant._id }).toArray();
   const promotions = candidates.filter((promotion) => isDateRangeActive(promotion.startDate, promotion.endDate, now));
   const offers = promotions.flatMap((promotion) => (promotion.items || [])
-    .filter((item) => String(item.variantId) === String(variant._id) && Number(item.promotionPrice) < Number(variant.retailPrice))
-    .map((item) => ({ name: promotion.name, id: promotion._id, price: Number(item.promotionPrice) })));
+    .filter((item) => String(item.variantId) === String(variant._id) && Number(item.promotionPrice) > 0 && Number(item.promotionPrice) < Number(variant.retailPrice))
+    .map((item) => ({ name: promotion.name, id: promotion._id, price: Number(item.promotionPrice), endsAt: promotion.endDate })));
   if (!offers.length) return variant;
   const best = offers.sort((a, b) => a.price - b.price)[0];
-  return { ...variant, promotionPrice: best.price, promotionName: best.name, promotionId: serialize(best.id) };
+  return { ...variant, promotionPrice: best.price, promotionName: best.name, promotionId: serialize(best.id), promotionEndsAt: best.endsAt || null };
 }
 
 function queryFilter(query, variantIds, categoryId, brandId) {
@@ -118,7 +118,7 @@ export function productsRouter({ db }) {
       productIdSets.push(saleProductIds);
     }
     const productIds = productIdSets.length
-      ? [...productIdSets[0]].filter((id) => productIdSets.every((set) => set.has(id))).map((id) => new ObjectId(id))
+      ? [...productIdSets[0]].filter((id) => productIdSets.every((set) => set.has(id))).map((id) => toReference(id, "productId"))
       : undefined;
     if (productIds && !productIds.length) return res.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0 } });
     const filter = queryFilter(req.query, productIds, categoryId, brandId);

@@ -35,7 +35,8 @@
 
   function normalizeProduct(product = {}) {
     const variants = (product.variants || product.productVariants || []).filter((variant) => variant && variant.isActive !== false);
-    const variant = variants.find((item) => item._id === product.defaultVariantId || item.id === product.defaultVariantId) || variants[0] || {};
+    const variant = variants.find((item) => String(item._id || item.id) === String(product.defaultVariantId)) || variants[0] || {};
+    const isPromotion = Number(variant.promotionPrice) > 0 && Number(variant.promotionPrice) < Number(variant.retailPrice);
     const brand = product.brandName || product.brand?.name || (typeof product.brand === "string" ? product.brand : "") || product.brandId?.name || "";
     const category = product.categoryName || product.category?.name || (typeof product.category === "string" ? product.category : "") || product.categoryId?.name || "";
     return {
@@ -45,9 +46,10 @@
       brand: brand || "Thương hiệu đang cập nhật",
       category,
       cat: product.category?.slug || product.categorySlug || product.categoryId || "",
-      price: Number(product.price ?? product.minPrice ?? variant.promotionPrice ?? variant.retailPrice ?? variant.price ?? variant.salePrice ?? 0),
-      old: Number(product.originalPrice ?? variant.originalPrice ?? variant.compareAtPrice ?? (variant.promotionPrice ? variant.retailPrice : 0)),
+      price: Number(isPromotion ? variant.promotionPrice : product.price ?? product.minPrice ?? variant.retailPrice ?? variant.price ?? variant.salePrice ?? 0),
+      old: Number(isPromotion ? variant.retailPrice : product.originalPrice ?? variant.originalPrice ?? variant.compareAtPrice ?? 0),
       promotionName: variant.promotionName || "",
+      promotionEndsAt: variant.promotionEndsAt || null,
       rating: Number(product.ratingAverage ?? product.rating ?? 0),
       reviews: Number(product.reviewCount ?? product.reviewsCount ?? 0),
       sold: Number(product.soldCount ?? 0),
@@ -55,6 +57,7 @@
       desc: product.description || product.shortDescription || "",
       sku: variant.sku || product.sku || "",
       variantId: String(variant._id || variant.id || ""),
+      defaultVariantId: String(variant._id || variant.id || ""),
       variants,
       sizes: variants.map((item) => item.size || item.volume || item.label || item.name || item.sku).filter(Boolean),
       stock: variant.availableQuantity ?? variant.stockQuantity ?? product.stockQuantity ?? null,
@@ -65,7 +68,87 @@
   }
 
   function errorMessage(error) {
+    const localizedErrors = {
+      AUTH_REQUIRED: "Vui lòng đăng nhập để tiếp tục.",
+      AUTH_INVALID: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+      CODE_INVALID: "Mã xác minh không hợp lệ hoặc đã hết hạn.",
+      INVALID_PROMOTION_PRICE: "Giá khuyến mãi phải thấp hơn giá bán hiện tại của tất cả sản phẩm đã chọn.",
+      ORDER_NOT_CANCELLABLE: "Đơn hàng chỉ có thể hủy trước khi chuyển sang trạng thái đang giao.",
+      DUPLICATE_USER: "Email hoặc số điện thoại này đã được đăng ký.",
+      NOT_FOUND: "Không tìm thấy dữ liệu yêu cầu.",
+      FORBIDDEN: "Tài khoản của bạn chưa được cấp quyền cho thao tác này.",
+      VALIDATION_ERROR: "Thông tin nhập chưa hợp lệ. Vui lòng kiểm tra lại.",
+      INVALID_JSON: "Dữ liệu JSON không hợp lệ.",
+      DUPLICATE_RESOURCE: "Dữ liệu này đã tồn tại.",
+      REQUEST_FAILED: "Yêu cầu không thực hiện được. Vui lòng thử lại.",
+      INVALID_STATUS_TRANSITION: "Không thể chuyển sang trạng thái này.",
+      DUPLICATE_PRODUCT: "Sản phẩm hoặc mã SKU đã tồn tại.",
+      DUPLICATE_SKU: "Mã SKU đã tồn tại.",
+      PRODUCT_NOT_FOUND: "Không tìm thấy sản phẩm.",
+      VARIANT_NOT_FOUND: "Không tìm thấy phân loại sản phẩm.",
+      PRODUCT_VARIANT_NOT_FOUND: "Sản phẩm hoặc phân loại sản phẩm không hợp lệ.",
+      DUPLICATE_PROMOTION_ITEM: "Một sản phẩm hoặc phân loại chỉ được chọn một lần.",
+      DUPLICATE_PROMOTION: "Chương trình khuyến mãi đã tồn tại.",
+      DUPLICATE_FLASH_SALE_ITEM: "Một sản phẩm hoặc phân loại chỉ được chọn một lần trong chương trình giảm giá nhanh.",
+      INVALID_FLASH_SALE_PRICE: "Giá giảm nhanh phải thấp hơn giá bán hiện tại.",
+      DUPLICATE_VOUCHER: "Mã giảm giá đã tồn tại.",
+      VOUCHER_NOT_FOUND: "Không tìm thấy mã giảm giá.",
+      VOUCHER_INACTIVE: "Mã giảm giá hiện không còn hiệu lực.",
+      VOUCHER_EXPIRED: "Mã giảm giá đã hết hạn.",
+      VOUCHER_MIN_ORDER: "Đơn hàng chưa đạt giá trị tối thiểu để dùng mã giảm giá.",
+      VOUCHER_USAGE_LIMIT: "Mã giảm giá đã hết lượt sử dụng.",
+      VOUCHER_ALREADY_CLAIMED: "Bạn đã nhận mã giảm giá này.",
+      VOUCHER_ALREADY_ASSIGNED: "Mã giảm giá đã được gán cho tài khoản này.",
+      SHIPPING_UNAVAILABLE: "Chưa có phí giao hàng cho khu vực đã chọn.",
+      STOCK_UNAVAILABLE: "Sản phẩm không đủ tồn kho.",
+      STORE_UNAVAILABLE: "Cửa hàng hiện không khả dụng.",
+      ORDER_NOT_PAYABLE: "Đơn hàng này không thể thanh toán.",
+      PAYMENT_NOT_SUPPORTED: "Phương thức thanh toán này chưa được hỗ trợ.",
+      PAYMENT_ALREADY_PAID: "Đơn hàng đã được thanh toán.",
+      PAYMENT_EXISTS: "Đơn hàng này đã có thông tin thanh toán.",
+      INVOICE_EXISTS: "Đơn hàng này đã có hóa đơn.",
+      ORDER_NOT_RETURNABLE: "Chỉ có thể đổi trả đơn đã giao hoặc hoàn tất.",
+      RETURN_ITEM_INVALID: "Sản phẩm hoặc số lượng đổi trả không hợp lệ.",
+      RETURN_STOCK_UNAVAILABLE: "Tồn kho không đủ để xử lý yêu cầu đổi trả.",
+      APPOINTMENT_SLOT_UNAVAILABLE: "Khung giờ vừa chọn không còn trống.",
+      CONSULTATION_NOT_COMPLETED: "Lịch tư vấn chưa hoàn tất.",
+      CONSULTATION_REVIEW_EXISTS: "Bạn đã đánh giá buổi tư vấn này.",
+      RECOMMENDATION_EXISTS: "Gợi ý sản phẩm này đã tồn tại.",
+      REVIEW_EXISTS: "Bạn đã gửi đánh giá cho sản phẩm này.",
+      REVIEW_LOCKED: "Đánh giá này không còn được chỉnh sửa.",
+      EMAIL_CODE_INVALID: "Mã xác minh không hợp lệ, đã hết hạn hoặc đã được sử dụng.",
+      EMAIL_CODE_RATE_LIMITED: "Bạn đã yêu cầu quá nhiều mã. Vui lòng thử lại sau 60 giây.",
+      EMAIL_CODE_SUPERSEDED: "Mã xác minh trước đó đã được thay thế.",
+      EMAIL_NOT_CONFIGURED: "Hệ thống email chưa được cấu hình.",
+      EMAIL_DELIVERY_FAILED: "Không thể gửi email. Vui lòng thử lại sau.",
+      AI_NOT_CONFIGURED: "Tư vấn thông minh chưa được cấu hình.",
+      GEMINI_TIMEOUT: "Tư vấn đang phản hồi chậm. Vui lòng thử lại.",
+      GEMINI_UNAVAILABLE: "Dịch vụ tư vấn hiện không khả dụng.",
+      GEMINI_EMPTY_RESPONSE: "Chưa nhận được nội dung trả lời. Vui lòng thử lại.",
+      GEMINI_API_ERROR: "Dịch vụ tư vấn gặp lỗi. Vui lòng thử lại.",
+      RATE_LIMITED: "Bạn thao tác quá nhanh. Vui lòng thử lại sau.",
+      INTERNAL_ERROR: "Hệ thống gặp lỗi. Vui lòng thử lại sau.",
+      NETWORK_ERROR: "Không thể kết nối máy chủ.",
+      CONCURRENT_UPDATE: "Dữ liệu vừa được cập nhật bởi thao tác khác. Vui lòng tải lại.",
+      DUPLICATE_CATALOG_VALUE: "Giá trị danh mục hoặc thương hiệu đã tồn tại.",
+      DUPLICATE_SHIPPING_RATE: "Khu vực giao hàng này đã tồn tại.",
+      SELF_DEACTIVATION: "Bạn không thể tự vô hiệu hóa tài khoản của mình.",
+      ORDER_NOT_READY_FOR_DELIVERY: "Chỉ có thể tạo phiếu giao cho đơn đã chuyển sang trạng thái đang giao.",
+      DELIVERY_ALREADY_EXISTS: "Đơn hàng này đã có phiếu giao.",
+      STOCK_NEGATIVE: "Tồn kho không thể nhỏ hơn 0.",
+      RESERVATION_RELEASE_FAILED: "Không thể giải phóng số lượng đã giữ.",
+      CHECKOUT_IN_PROGRESS: "Đơn hàng đang được xử lý. Vui lòng chờ.",
+      STOCK_COMMIT_FAILED: "Không thể cập nhật tồn kho.",
+      ORDER_ARTIFACTS_INCOMPLETE: "Chưa thể hoàn tất đơn vì dữ liệu thanh toán hoặc hóa đơn chưa đủ.",
+      ORDER_ARTIFACTS_MISSING: "Không tìm thấy dữ liệu thanh toán hoặc hóa đơn của đơn hàng.",
+      DUPLICATE_WISHLIST_ITEM: "Sản phẩm đã có trong danh sách yêu thích.",
+      DUPLICATE_KNOWLEDGE_SLUG: "Tài liệu tri thức đã tồn tại."
+    };
+    const localized = localizedErrors[error?.code];
+    if (localized) return localized;
     if (error?.status === 401) return "Vui lòng đăng nhập để tiếp tục.";
+    if (error?.code === "INVALID_PROMOTION_PRICE") return "Giá khuyến mãi phải thấp hơn giá bán hiện tại của tất cả sản phẩm đã chọn.";
+    if (error?.code === "ORDER_NOT_CANCELLABLE") return "Đơn hàng chỉ có thể hủy trước khi chuyển sang trạng thái đang giao.";
     if (error?.status === 403) return "Tài khoản của bạn chưa được cấp quyền cho thao tác này.";
     if (error?.status === 404) return "Không tìm thấy dữ liệu yêu cầu.";
     if (error?.code === "DUPLICATE_USER") return "Email hoặc số điện thoại này đã được đăng ký.";
@@ -128,9 +211,13 @@
       const product = normalizeProduct(input);
       const variant = product.variants.find((item) => String(item._id || item.id) === product.variantId) || product.variants[0] || {};
       const size = variant.size || variant.volume || variant.label || "";
-      const badge = product.isDemo ? '<span class="pill demo-pill">DỮ LIỆU MINH HỌA</span>' : "";
-      const sale = Number(variant.promotionPrice) > 0 && Number(variant.promotionPrice) < Number(variant.retailPrice)
-        ? '<span class="pill sale-pill">ƯU ĐÃI</span>' : "";
+      const badge = "";
+      const isPromotion = Number(variant.promotionPrice) > 0 && Number(variant.promotionPrice) < Number(variant.retailPrice);
+      const discount = isPromotion ? Math.round((1 - Number(variant.promotionPrice) / Number(variant.retailPrice)) * 100) : 0;
+      const sale = isPromotion ? `<span class="pill sale-pill">-${discount}%</span>` : "";
+      const expiryDate = isPromotion && product.promotionEndsAt ? new Date(product.promotionEndsAt) : null;
+      const expiry = expiryDate && Number.isFinite(expiryDate.getTime())
+        ? `<small class="sale-expires">Ưu đãi đến ${escape(expiryDate.toLocaleDateString("vi-VN"))}</small>` : "";
       const image = product.image ? `<img src="${escape(product.image)}" alt="${escape(product.name)}" loading="lazy" decoding="async">` : '<span class="image-pending">Ảnh sản phẩm</span>';
       return `<article class="card">
         <a class="photo" href="product.html?id=${encodeURIComponent(product.id)}">${badge}${sale}${image}</a>
@@ -138,6 +225,7 @@
         <a class="name" href="product.html?id=${encodeURIComponent(product.id)}">${escape(product.name)}</a>
         <div class="rating">${product.rating ? `${product.rating.toFixed(1)} ★` : "Chưa có đánh giá"}<span>${product.reviews ? `(${product.reviews})` : ""}</span></div>
         <div class="price">${MB.money(product.price)} ${product.old > product.price ? `<del>${MB.money(product.old)}</del>` : ""}</div>
+        ${expiry}
         <button class="add" data-add="${escape(product.id)}" data-variant="${escape(product.variantId)}" data-size="${escape(size)}" ${product.variantId ? "" : "disabled"}>THÊM VÀO GIỎ</button>
       </article>`;
     },

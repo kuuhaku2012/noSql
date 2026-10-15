@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Maison Belle</title>
+  <desc id="desc">Maison Belle monogram</desc>
+  <defs>
+    <linearGradient id="bg" x1="8" y1="4" x2="57" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4a2e31"/>
+      <stop offset="1" stop-color="#241c1a"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="url(#bg)"/>
+  <path d="M17 43V21h4.2l10.8 13.8L42.8 21H47v22h-4.5V28.7L32 42.5 21.5 28.7V43H17Z" fill="#f6eee8"/>
+  <path d="M49 11.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z" fill="#d88e86"/>
+</svg>

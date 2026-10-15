@@ -1,6 +1,7 @@
 import { closeDatabase, connectDatabase } from "../src/db.js";
 import { getConfig } from "../src/config.js";
 import { collections } from "../src/collections.js";
+import { ensureDefaultShippingRates } from "../src/shipping-regions.js";
 import { createIndexes } from "./create-indexes.js";
 
 export async function migrateModel(db) {
@@ -18,6 +19,7 @@ export async function migrateModel(db) {
   ];
   for (const [collection, filter, update] of operations) await collection.updateMany(filter, update);
   await createIndexes(db);
+  await ensureDefaultShippingRates(db);
   return { migratedCollections: 9 };
 }
 

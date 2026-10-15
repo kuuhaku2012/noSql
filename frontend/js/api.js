@@ -69,6 +69,7 @@
       flashSales: { list: (query) => get("/api/flash-sales", query) },
       products: (query = {}) => get("/api/products", query),
       product: (id) => get(idPath("/api/products", id)),
+      chat: (body) => send("POST", "/api/chat", body),
       auth: {
         login: (body) => send("POST", "/api/auth/login", body),
         register: ({ email, fullName, phone, skinType, password, verificationCode }) => send("POST", "/api/auth/register", { email, fullName, phone, skinType, password, verificationCode }),
@@ -91,6 +92,7 @@
         create: (body) => send("POST", "/api/orders", body),
         list: (query) => get("/api/orders", query),
         get: (id) => get(idPath("/api/orders", id)),
+        cancel: (id) => request(idPath("/api/orders", id), { method: "DELETE" }),
         payment: (id, body) => send("POST", idPath("/api/orders", id) + "/payment", body),
         updateStatus: (id, body) => request(idPath("/api/orders", id) + "/status", { method: "PATCH", body })
       },
@@ -140,6 +142,7 @@
         adjustStock: (body) => send("POST", "/api/admin/stock-adjustments", body),
         promotions: {
           list: (query) => get("/api/admin/promotions", query),
+          get: (id) => get(idPath("/api/admin/promotions", id)),
           create: (body) => send("POST", "/api/admin/promotions", body),
           update: (id, body) => request(idPath("/api/admin/promotions", id), { method: "PATCH", body }),
           remove: (id) => request(idPath("/api/admin/promotions", id), { method: "DELETE" })
@@ -167,7 +170,13 @@
           create: (body) => send("POST", "/api/admin/returns", body),
           update: (id, body) => request(idPath("/api/admin/returns", id), { method: "PATCH", body })
         },
-        reports: (query) => get("/api/admin/reports", query)
+        reports: (query) => get("/api/admin/reports", query),
+        knowledge: {
+          list: (query) => get("/api/admin/knowledge", query),
+          create: (body) => send("POST", "/api/admin/knowledge", body),
+          update: (id, body) => request(idPath("/api/admin/knowledge", id), { method: "PATCH", body }),
+          remove: (id) => request(idPath("/api/admin/knowledge", id), { method: "DELETE" })
+        }
       }
     };
   }

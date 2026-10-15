@@ -80,13 +80,15 @@ test("customer pages put service shortcuts in the header and group product types
     assert.doesNotMatch(nav.replace(/<details class="nav-categories">[\s\S]*?<\/details>/, ""), /cat=(skincare|makeup|body)/);
     assert.doesNotMatch(nav, /ĐẶT LỊCH TƯ VẤN/);
     assert.doesNotMatch(nav, /nav-services|index\.html#bao-hanh/);
-    for (const section of ["ban-chay", "hang-moi"]) assert.match(nav, new RegExp(`href="(?:index\\.html)?#${section}"`), `${page} should offer ${section} navigation`);
+    assert.match(nav, /href="products\.html\?sale=1"/, `${page} should link to genuine discounted products`);
+    assert.match(nav, /href="index\.html#hang-moi"/, `${page} should link to new arrivals`);
     assert.match(nav, /<a[^>]*href="about\.html"[^>]*>GIỚI THIỆU<\/a>\s*$/, `${page} should place About last in the main navigation`);
     assert.doesNotMatch(nav, /href="index\.html#gioi-thieu"/);
     assert.match(drawer, /href="consultation\.html"/);
     assert.match(drawer, /href="warranty\.html"/);
     assert.equal((drawer.match(/href="about\.html"/g) || []).length, 1, `${page} should show the introduction link once in the mobile menu`);
-    for (const section of ["ban-chay", "hang-moi"]) assert.match(drawer, new RegExp(`href="index\\.html#${section}"`), `${page} should offer ${section} in the mobile menu`);
+    assert.match(drawer, /href="products\.html\?sale=1"/, `${page} should link to sale products in the mobile menu`);
+    assert.match(drawer, /href="index\.html#hang-moi"/, `${page} should link to new arrivals in the mobile menu`);
   }
 });
 
@@ -154,16 +156,17 @@ test("cart omits the stepper, item count, and placeholder shipping display", asy
   assert.doesNotMatch(storefront, /\$\("#ship"\)/, "cart rendering should not require a placeholder fee element");
 });
 
-test("home menu destinations and product shelves are honest about API-backed ranking", async () => {
+test("home product shelves display API backed promotions and recent products", async () => {
   const home = await readFile(join(root, "index.html"), "utf8");
   const storefront = await readFile(join(root, "js/storefront.js"), "utf8");
   assert.match(home, /id="gioi-thieu"/);
-  assert.match(home, /id="ban-chay"[\s\S]*?id="loved"/);
+  assert.match(home, /id="uu-dai"[\s\S]*?id="deals"/);
+  assert.doesNotMatch(home, /id="uu-dai"\s+hidden/, "the promotions section should remain visible without active offers");
   assert.match(home, /id="hang-moi"[\s\S]*?id="fresh"/);
-  assert.match(home, /<h2>Sản phẩm bán chạy<\/h2>/);
+  assert.match(home, /<h2>Ưu đãi dành cho bạn<\/h2>/);
   assert.match(home, /<h2>Hàng mới về<\/h2>/);
-  assert.match(storefront, /Xếp hạng bán chạy chờ backend/);
-  assert.match(storefront, /XEM TOÀN BỘ SẢN PHẨM/);
+  assert.match(storefront, /MBApi\.products\(\{ sale: "true", page: 1, limit: 12 \}\)/);
+  assert.match(storefront, /MB\.showState\(loved, "empty", "Hiện chưa có sản phẩm đang giảm giá/);
   assert.doesNotMatch(storefront, /products\.slice\(0,\s*4\)|products\.slice\(4,\s*8\)/, "a recent-product response must not be presented as sales ranking");
 });
 

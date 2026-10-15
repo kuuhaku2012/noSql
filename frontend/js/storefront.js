@@ -8,8 +8,20 @@
   };
   const stateAction = '<button class="outline" type="button" data-retry>Thử lại</button>';
   const showError = (host, error) => MB.showState(host, error.status === 403 ? "forbidden" : error.status === 404 ? "notFound" : "error", MB.errorMessage(error), error.status === 401 ? '<a class="btn" href="account.html">ĐĂNG NHẬP</a>' : stateAction);
-  const demoTag = (item) => item?.isDemo ? '<span class="demo-label">DỮ LIỆU MINH HỌA</span>' : "";
-  const statusText = (value) => ({ pending: "Chờ xử lý", requested: "Đã gửi yêu cầu", confirmed: "Đã xác nhận", processing: "Đang xử lý", shipped: "Đang giao", delivered: "Đã giao", completed: "Hoàn tất", cancelled: "Đã hủy", returned: "Đã trả", paid: "Đã thanh toán", failed: "Thanh toán thất bại", issued: "Đã phát hành", approved: "Đã duyệt", received: "Đã nhận hàng", rejected: "Từ chối", refunded: "Đã hoàn tiền", exchanged: "Đã đổi hàng" }[String(value || "").toLowerCase()] || value || "—");
+  const demoTag = () => "";
+  const statusText = (value) => ({ pending: "Chờ xử lý", requested: "Đã gửi yêu cầu", confirmed: "Đã xác nhận", processing: "Đang xử lý", shipped: "Đang giao", delivered: "Đã giao", completed: "Hoàn tất", cancelled: "Đã hủy", returned: "Đã trả", paid: "Đã thanh toán", failed: "Thanh toán thất bại", issued: "Đã phát hành", approved: "Đã duyệt", received: "Đã nhận hàng", rejected: "Từ chối", refunded: "Đã hoàn tiền", exchanged: "Đã đổi hàng", hidden: "Đã ẩn", expired: "Đã hết hạn", available: "Còn hiệu lực", used: "Đã sử dụng" }[String(value || "").toLowerCase()] || value || "—");
+  const paymentMethodText = (value) => ({ cod: "Thanh toán khi nhận hàng", bank_transfer: "Chuyển khoản", mock: "Chuyển khoản" }[String(value || "").toLowerCase()] || value || "—");
+  const membershipTierText = (value) => ({ bronze: "Đồng", silver: "Bạc", gold: "Vàng", platinum: "Bạch kim" }[String(value || "").toLowerCase()] || value || "Chưa xếp hạng");
+  const loyaltyActivityText = (value) => ({ view: "Xem sản phẩm", search: "Tìm kiếm", favorite: "Yêu thích", cart: "Thêm vào giỏ", purchase: "Mua hàng", consultation: "Tư vấn" }[String(value || "").toLowerCase()] || value || "Điểm thành viên");
+  const canCancelOrder = (status) => ["pending", "requested", "confirmed", "processing"].includes(String(status || "").toLowerCase());
+
+  const bankTransferInfo = { bank: "Sacombank", accountNumber: "0327256842", accountName: "Ngô Long Thiên", bin: "970403" };
+  const bankTransferMarkup = (order) => {
+    const orderCode = String(order?.orderCode || order?.code || order?.id || order?._id || "");
+    const amount = Math.max(0, Number(order?.finalAmount ?? order?.totalAmount ?? order?.total ?? 0));
+    const qrUrl = `https://img.vietqr.io/image/${bankTransferInfo.bin}-${bankTransferInfo.accountNumber}-compact2.png?amount=${encodeURIComponent(amount)}&addInfo=${encodeURIComponent(orderCode)}&accountName=${encodeURIComponent(bankTransferInfo.accountName)}`;
+    return `<section class="bank-transfer-card" aria-label="Thông tin chuyển khoản"><div class="bank-transfer-qr"><img src="${qrUrl}" alt="Mã VietQR Sacombank cho đơn ${esc(orderCode)}" loading="lazy"><span>Quét mã bằng ứng dụng ngân hàng</span></div><div class="bank-transfer-copy"><span class="eyebrow">THANH TOÁN CHUYỂN KHOẢN</span><h3>Hoàn tất đơn hàng bằng VietQR</h3><p>Chuyển đúng số tiền và ghi đúng nội dung để cửa hàng đối soát nhanh.</p><dl><div><dt>Ngân hàng</dt><dd>${esc(bankTransferInfo.bank)}</dd></div><div><dt>Chủ tài khoản</dt><dd>${esc(bankTransferInfo.accountName)}</dd></div><div><dt>Số tài khoản</dt><dd>${esc(bankTransferInfo.accountNumber)}</dd></div><div><dt>Số tiền</dt><dd>${MB.money(amount)}</dd></div><div><dt>Nội dung chuyển khoản</dt><dd>${esc(orderCode)}</dd></div></dl><p class="bank-transfer-note">Đơn sẽ được xác nhận sau khi hệ thống ghi nhận giao dịch.</p></div></section>`;
+  };
 
   async function catalog() {
     const grid = $("#grid");
@@ -24,7 +36,7 @@
     if (wishList) {
       title.textContent = "Yêu thích";
       $("#crumb").textContent = title.textContent;
-      MB.showState(grid, "empty", "Danh sách yêu thích chưa thuộc phạm vi nghiệp vụ và chưa có API hỗ trợ.");
+      MB.showState(grid, "empty", "Danh sách yêu thích chưa thuộc phạm vi nghiệp vụ và chưa được hệ thống hỗ trợ.");
       $("#count").textContent = "";
       return;
     }
@@ -89,7 +101,7 @@
           const narrowed = Boolean(query.q || query.category || query.brand || query.skinType || query.minPrice || query.maxPrice || query.sale);
           const message = narrowed
             ? "Chưa tìm thấy sản phẩm với các lựa chọn hiện tại. Hãy bỏ bộ lọc để xem toàn bộ cửa hàng."
-            : "Cửa hàng đang cập nhật sản phẩm. Bạn có thể xem ưu đãi mới hoặc đặt lịch tư vấn routine.";
+            : "Cửa hàng đang cập nhật sản phẩm. Bạn có thể xem ưu đãi mới hoặc đặt lịch tư vấn quy trình chăm sóc.";
           const actions = narrowed
             ? '<button class="outline" type="button" data-clear-filters>BỎ BỘ LỌC</button>'
             : '<a class="outline" href="offers.html">XEM ƯU ĐÃI</a><a class="outline" href="consultation.html">ĐẶT LỊCH TƯ VẤN</a>';
@@ -222,18 +234,112 @@
     await load();
   }
 
-  async function home() {
-    const loved = $("#loved"), fresh = $("#fresh");
-    if (!loved && !fresh) return;
-    if (loved) MB.showState(loved, "empty", "Xếp hạng bán chạy chờ backend hỗ trợ sắp xếp theo số lượng đã bán. Maison Belle không gắn nhãn thứ hạng giả cho sản phẩm.", '<a class="outline" href="products.html">XEM TOÀN BỘ SẢN PHẨM</a>');
-    if (fresh) MB.showState(fresh, "loading", "Đang tải sản phẩm mới từ cửa hàng…");
+  async function setupBrandMarquee() {
+    const marquee = document.querySelector("[data-brand-marquee]");
+    const track = marquee?.querySelector(".track");
+    if (!track) return;
     try {
-      const response = await MBApi.products({ page: 1, limit: 4 });
-      const products = MBApi.list(response).items.map(MB.normalizeProduct);
-      if (!fresh) return;
-      if (!products.length) MB.showState(fresh, "empty", "Cửa hàng chưa có sản phẩm mới để hiển thị.");
-      else fresh.innerHTML = products.map(MB.card).join("");
-    } catch (error) { if (fresh) showError(fresh, error); }
+      const catalog = responseData(await MBApi.catalog()) || {};
+      const names = [...new Map((catalog.brands || [])
+        .filter((brand) => brand?.isActive !== false && brand?.name)
+        .map((brand) => [String(brand.name).trim().toLowerCase(), String(brand.name).trim()])).values()]
+        .slice(0, 16);
+      if (!names.length) return;
+      track.innerHTML = names
+        .map((name) => `<span>${esc(name)}</span>`)
+        .join("");
+    } catch {
+      // Giữ dải thương hiệu mặc định nếu danh mục chưa sẵn sàng.
+    }
+  }
+
+  function setupHomeShelves() {
+    const reduceMotion = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.querySelectorAll("[data-shelf-marquee]").forEach((viewport) => {
+      const track = viewport.querySelector(".shelf-track");
+      if (!track || track.dataset.marqueeReady === "true") return;
+      const cards = [...track.children].filter((child) => child.classList.contains("card"));
+      if (!cards.length) return;
+      if (cards.length < 3) {
+        track.dataset.marqueeReady = "true";
+        track.classList.add("shelf-track-static", `shelf-track-count-${cards.length}`);
+        return;
+      }
+      if (reduceMotion) {
+        track.dataset.marqueeReady = "true";
+        return;
+      }
+      const cloneCard = (card) => {
+        const clone = card.cloneNode(true);
+        clone.dataset.marqueeClone = "true";
+        clone.setAttribute("aria-hidden", "true");
+        clone.inert = true;
+        clone.querySelectorAll("a, button, input, select, textarea").forEach((control) => { control.tabIndex = -1; });
+        return clone;
+      };
+      const gap = Number.parseFloat(getComputedStyle(track).columnGap) || 16;
+      const sequence = [...cards];
+      let groupWidth = cards.reduce((total, card) => total + card.getBoundingClientRect().width + gap, 0);
+      while (groupWidth < viewport.clientWidth + gap && sequence.length < 12) {
+        const copies = cards.map(cloneCard);
+        track.append(...copies);
+        sequence.push(...copies);
+        groupWidth += copies.reduce((total, card) => total + card.getBoundingClientRect().width + gap, 0);
+      }
+      track.append(...sequence.map(cloneCard));
+      track.dataset.marqueeReady = "true";
+      track.classList.add("shelf-track-marquee");
+      const pause = () => { track.style.animationPlayState = "paused"; };
+      const resume = () => { track.style.animationPlayState = document.hidden ? "paused" : "running"; };
+      viewport.addEventListener("mouseenter", pause);
+      viewport.addEventListener("mouseleave", resume);
+      viewport.addEventListener("focusin", pause);
+      viewport.addEventListener("focusout", resume);
+      document.addEventListener("visibilitychange", resume, { passive: true });
+      resume();
+    });
+  }
+
+  async function home() {
+    const loved = $("#deals"), fresh = $("#fresh");
+    if (!loved && !fresh) return;
+    if (loved) MB.showState(loved, "loading", "Đang tải ưu đãi dành cho bạn…");
+    if (fresh) MB.showState(fresh, "loading", "Đang tải sản phẩm mới từ cửa hàng…");
+    await Promise.all([
+      (async () => {
+        if (!loved) return;
+        try {
+          const response = await MBApi.products({ sale: "true", page: 1, limit: 12 });
+          const offers = MBApi.list(response).items.map((product) => {
+            const variant = product.variants?.find((item) => Number(item.promotionPrice) > 0 && Number(item.promotionPrice) < Number(item.retailPrice));
+            return variant ? {
+              ...product,
+              defaultVariantId: String(variant.id || variant._id),
+              price: Number(variant.promotionPrice),
+              originalPrice: Number(variant.retailPrice)
+            } : null;
+          }).filter(Boolean);
+          if (!offers.length) {
+            MB.showState(loved, "empty", "Hiện chưa có sản phẩm đang giảm giá. Hãy khám phá các sản phẩm tại Maison Belle trong lúc chờ ưu đãi mới.", '<a class="outline" href="products.html">KHÁM PHÁ SẢN PHẨM</a>');
+            return;
+          }
+          loved.innerHTML = offers.map(MB.card).join("");
+        } catch (error) {
+          showError(loved, error);
+        }
+      })(),
+      (async () => {
+        if (!fresh) return;
+        try {
+          const response = await MBApi.products({ page: 1, limit: 4 });
+          const products = MBApi.list(response).items.map(MB.normalizeProduct);
+          if (!products.length) MB.showState(fresh, "empty", "Cửa hàng chưa có sản phẩm mới để hiển thị.");
+          else fresh.innerHTML = products.map(MB.card).join("");
+        } catch (error) { showError(fresh, error); }
+      })()
+    ]);
+    await setupBrandMarquee();
+    setupHomeShelves();
   }
 
   function cartEntry(item) {
@@ -287,9 +393,19 @@
     let activeShippingQuote = null;
     let shippingQuoteSequence = 0;
     let shippingRatesLoaded = false;
+    let checkoutPrefilled = false;
+    let savedAddresses = [];
+    let selectedSavedAddress = null;
+    let checkoutEditing = false;
     const regionSelect = $("#pay-form [name=regionCode]");
     const shippingQuoteNote = $("#shipping-quote");
     const checkoutSubmit = $("#pay-form [type=submit]");
+    const checkoutReview = $("[data-checkout-review]");
+    const checkoutEditor = $("[data-checkout-editor]");
+    const checkoutReviewName = $("[data-checkout-review-name]");
+    const checkoutReviewAddress = $("[data-checkout-review-address]");
+    const editCheckoutAddress = $("[data-edit-checkout-address]");
+    const cancelCheckoutEdit = $("[data-cancel-checkout-edit]");
     checkoutSubmit.disabled = true;
     const clearCheckoutRequest = () => {
       checkoutRequest = null;
@@ -351,9 +467,9 @@
         const subtotal = currentItems.filter((item) => item.available).reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
         const result = responseData(await MBApi.validateVoucher({ code, subtotal })) || {};
         const amount = Number(result.discountAmount ?? result.discountValue ?? result.discount ?? NaN);
-        if (!Number.isFinite(amount)) { discount = 0; MB.toast("Máy chủ chưa trả số tiền ưu đãi; vui lòng thử lại sau khi đồng bộ API.", "error"); return; }
+        if (!Number.isFinite(amount)) { discount = 0; MB.toast("Máy chủ chưa trả số tiền ưu đãi; vui lòng thử lại sau khi đồng bộ dữ liệu.", "error"); return; }
         discount = Math.max(0, amount);
-        $("#applied-voucher").textContent = `Đã kiểm tra mã ${code}${result.isDemo ? " · DỮ LIỆU MINH HỌA" : ""}`;
+        $("#applied-voucher").textContent = `Đã kiểm tra mã ${code}`;
         totals();
         MB.toast("Mã ưu đãi đã được máy chủ xác nhận.", "success");
       } catch (error) { $("#applied-voucher").textContent = MB.errorMessage(error); discount = 0; totals(); }
@@ -362,7 +478,7 @@
       if (shippingRatesLoaded) return;
       shippingQuoteNote.textContent = "Đang tải khu vực giao hàng…";
       const rates = listData(await MBApi.shipping.rates());
-      regionSelect.innerHTML = `<option value="">Chọn tỉnh / thành phố</option>${rates.map((rate) => `<option value="${esc(rate.regionCode)}">${esc(rate.regionName)}${rate.isDemo ? " · DỮ LIỆU MINH HỌA" : ""}</option>`).join("")}`;
+      regionSelect.innerHTML = `<option value="">Chọn tỉnh / thành phố</option>${rates.map((rate) => `<option value="${esc(rate.regionCode)}">${esc(rate.regionName)}</option>`).join("")}`;
       shippingRatesLoaded = true;
       shippingQuoteNote.textContent = rates.length ? "Chọn tỉnh / thành phố để xem phí giao hàng." : "Chưa có khu vực giao hàng khả dụng.";
     };
@@ -382,22 +498,96 @@
         const fee = Number(quote.fee);
         if (quote.regionCode !== regionCode || !Number.isFinite(fee) || fee < 0) throw new Error("Máy chủ trả về báo giá giao hàng không hợp lệ.");
         activeShippingQuote = quote;
-        shippingQuoteNote.textContent = `Phí giao hàng: ${MB.money(fee)}${quote.isDemo ? " · DỮ LIỆU MINH HỌA" : ""}`;
+        shippingQuoteNote.textContent = `Phí giao hàng: ${MB.money(fee)}`;
         checkoutSubmit.disabled = false;
       } catch (error) {
         if (sequence !== shippingQuoteSequence) return;
         shippingQuoteNote.textContent = MB.errorMessage(error);
       }
     };
+    const addressId = (address) => String(address?.id || address?._id || "");
+    const addressIsComplete = (address) => Boolean(address?.receiverName && address?.receiverPhone && address?.fullAddress && address?.regionCode);
+    const setCheckoutFormValues = (address) => {
+      const form = $("#pay-form");
+      if (!form || !address) return;
+      if (address.receiverName !== undefined) form.elements.name.value = address.receiverName;
+      if (address.receiverPhone !== undefined) form.elements.phone.value = address.receiverPhone;
+      if (address.fullAddress !== undefined) form.elements.addr.value = address.fullAddress;
+      if (address.regionCode && [...regionSelect.options].some((option) => option.value === address.regionCode)) regionSelect.value = address.regionCode;
+    };
+    const setAddressFieldsRequired = (required) => {
+      checkoutEditor?.querySelectorAll("input, textarea, select").forEach((field) => { field.required = required; });
+    };
+    const renderCheckoutReview = () => {
+      const showReview = Boolean(selectedSavedAddress && addressIsComplete(selectedSavedAddress) && !checkoutEditing);
+      if (checkoutReview) checkoutReview.hidden = !showReview;
+      if (checkoutEditor) checkoutEditor.hidden = showReview;
+      if (cancelCheckoutEdit) cancelCheckoutEdit.hidden = !checkoutEditing || !selectedSavedAddress;
+      setAddressFieldsRequired(!showReview);
+      if (showReview) {
+        const name = selectedSavedAddress.receiverName;
+        const location = [selectedSavedAddress.fullAddress, selectedSavedAddress.regionName].filter(Boolean).join(" · ");
+        if (checkoutReviewName) checkoutReviewName.textContent = name;
+        if (checkoutReviewAddress) checkoutReviewAddress.textContent = location;
+      }
+    };
+    const focusCheckoutAddress = () => requestAnimationFrame(() => checkoutEditor?.querySelector("input, textarea, select")?.focus());
+    const openCheckoutEditor = () => {
+      checkoutEditing = true;
+      renderCheckoutReview();
+      focusCheckoutAddress();
+    };
+    const restoreSavedAddress = async () => {
+      if (!selectedSavedAddress) return;
+      setCheckoutFormValues(selectedSavedAddress);
+      checkoutEditing = false;
+      renderCheckoutReview();
+      if (regionSelect.value) await updateShippingQuote();
+    };
+    const persistCheckoutAddress = async (values) => {
+      const payload = {
+        receiverName: values.name.trim(),
+        receiverPhone: values.phone.trim(),
+        fullAddress: values.addr.trim(),
+        regionCode: values.regionCode,
+        regionName: regionSelect.selectedOptions[0]?.textContent?.trim() || "",
+        isDefault: true
+      };
+      const existingId = addressId(selectedSavedAddress);
+      if (existingId) {
+        const unchanged = ["receiverName", "receiverPhone", "fullAddress", "regionCode"].every((field) => String(selectedSavedAddress[field] || "") === payload[field]);
+        if (unchanged && selectedSavedAddress.isDefault) return selectedSavedAddress;
+        selectedSavedAddress = responseData(await MBApi.customers.addresses.update(existingId, payload));
+      } else {
+        selectedSavedAddress = responseData(await MBApi.customers.addresses.create(payload));
+        savedAddresses = [selectedSavedAddress, ...savedAddresses];
+      }
+      checkoutEditing = false;
+      renderCheckoutReview();
+      return selectedSavedAddress;
+    };
+    const prefillSavedAddress = async () => {
+      if (checkoutPrefilled) return;
+      checkoutPrefilled = true;
+      try { savedAddresses = listData(await MBApi.customers.addresses.list()); }
+      catch { savedAddresses = []; }
+      selectedSavedAddress = savedAddresses.find((address) => address.isDefault) || savedAddresses[0] || null;
+      if (selectedSavedAddress) setCheckoutFormValues(selectedSavedAddress);
+      checkoutEditing = !addressIsComplete(selectedSavedAddress);
+      renderCheckoutReview();
+    };
     regionSelect?.addEventListener("change", updateShippingQuote);
+    editCheckoutAddress?.addEventListener("click", openCheckoutEditor);
+    cancelCheckoutEdit?.addEventListener("click", () => { restoreSavedAddress().catch((error) => MB.toast(MB.errorMessage(error), "error")); });
     const openCheckout = async () => {
       MB.modalReturnFocus = $("#checkout");
       $("#pay").classList.add("open");
       $("#pay").setAttribute("aria-hidden", "false");
-      requestAnimationFrame(() => $("#pay-form input:not([type=hidden])")?.focus());
       try {
         await loadShippingRates();
+        await prefillSavedAddress();
         if (regionSelect.value) await updateShippingQuote();
+        requestAnimationFrame(() => (checkoutEditing ? checkoutEditor?.querySelector("input, textarea, select") : editCheckoutAddress || $("#pay-form [name=paymentMethod]") || checkoutSubmit)?.focus());
       }
       catch (error) { shippingQuoteNote.textContent = MB.errorMessage(error); throw error; }
     };
@@ -425,6 +615,7 @@
       submit.disabled = true;
       try {
         const voucherCode = $("#promo [name=code]")?.value.trim().toUpperCase() || "";
+        await persistCheckoutAddress(values);
         const payload = {
           items: currentItems.map(({ variantId, quantity }) => ({ variantId, quantity })),
           paymentMethod: values.paymentMethod,
@@ -441,7 +632,11 @@
         $("#pay").setAttribute("aria-hidden", "true");
         MB.modalReturnFocus?.focus();
         const orderCode = result?.orderCode || result?.code || result?._id || result?.id || "";
-        MB.showState(host, "success", `Đơn đã được ghi nhận${orderCode ? ` · Mã ${orderCode}` : ""}${result?.isDemo ? " · DỮ LIỆU MINH HỌA" : ""}. Trạng thái và thanh toán do máy chủ quản lý.${cartClearWarning}`, '<a class="textlink" href="account.html#orders">XEM ĐƠN HÀNG</a>');
+        if (values.paymentMethod === "bank_transfer") {
+          host.innerHTML = `<section class="checkout-confirmation"><div class="checkout-confirmation-head"><span class="state-mark" aria-hidden="true">\u2713</span><div><span class="eyebrow">\u0110\u01a0N H\u00c0NG \u0110\u00c3 GHI NH\u1eacN</span><h2>Ch\u1edd x\u00e1c nh\u1eadn chuy\u1ec3n kho\u1ea3n</h2><p>M\u00e3 \u0111\u01a1n <strong>${esc(orderCode || "\u2014")}</strong>. ${cartClearWarning}</p></div></div>${bankTransferMarkup({ ...result, orderCode })}<a class="btn" href="account.html#orders">XEM \u0110\u01a0N H\u00c0NG</a></section>`;
+        } else {
+          MB.showState(host, "success", `Đơn hàng được ghi nhận${orderCode ? ` · Mã ${orderCode}` : ""}.`, '<a class="textlink" href="account.html#orders">XEM ĐƠN HÀNG</a>');
+        }
         currentItems = [];
         discount = 0;
         totals();
@@ -499,11 +694,11 @@
       closeAuthForms();
       const rememberedEmail = MB.rememberedEmail();
       host.innerHTML = `<section class="account-auth">
-        <aside class="account-story"><span class="eyebrow">MAISON BELLE · CHĂM SÓC CÓ CHỦ ĐÍCH</span><h1>Một nghi thức nhỏ.<br><em>Một làn da được lắng nghe.</em></h1><p>Tìm sản phẩm phù hợp, lưu lại hành trình đơn hàng và kết nối với đội ngũ tư vấn của Maison Belle.</p><div class="story-points"><span>01 <b>Tuyển chọn theo nhu cầu</b></span><span>02 <b>Lịch sử mua sắm rõ ràng</b></span><span>03 <b>Tư vấn chăm sóc cá nhân</b></span></div><small>BEAUTY, WITH INTENTION</small></aside>
+        <aside class="account-story"><span class="eyebrow">MAISON BELLE · CHĂM SÓC CÓ CHỦ ĐÍCH</span><h1>Một nghi thức nhỏ.<br><em>Một làn da được lắng nghe.</em></h1><p>Tìm sản phẩm phù hợp, lưu lại hành trình đơn hàng và kết nối với đội ngũ tư vấn của Maison Belle.</p><div class="story-points"><span>01 <b>Tuyển chọn theo nhu cầu</b></span><span>02 <b>Lịch sử mua sắm rõ ràng</b></span><span>03 <b>Tư vấn chăm sóc cá nhân</b></span></div><small>LÀM ĐẸP CÓ CHỦ ĐÍCH</small></aside>
         <div class="account-glass"><div class="auth-switch" role="group" aria-label="Chọn hình thức tài khoản"><button type="button" data-auth-mode="login" aria-pressed="true">Đăng nhập</button><button type="button" data-auth-mode="register" aria-pressed="false">Tạo tài khoản</button></div>
-          <section data-auth-panel="login"><span class="eyebrow">MAISON BELLE · TÀI KHOẢN</span><h2>Chào mừng bạn trở lại.</h2><p>${esc(message)}</p><form id="login-form" class="form-grid"><label class="field">Email<input type="email" name="email" value="${esc(rememberedEmail)}" maxlength="254" required autocomplete="username"></label><div class="field"><label for="login-password">Mật khẩu</label><div class="password-control"><input id="login-password" type="password" name="password" required autocomplete="current-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div></div><div class="auth-options"><label class="auth-remember"><input type="checkbox" name="rememberEmail" ${rememberedEmail ? "checked" : ""}> Ghi nhớ email trên thiết bị này</label><button class="auth-forgot" type="button" data-forgot-password aria-controls="password-reset-panel">Quên mật khẩu?</button></div><button class="btn" type="submit">ĐĂNG NHẬP</button><p class="form-message" role="status" aria-live="polite"></p></form></section>
-          <section data-auth-panel="register" hidden><span class="eyebrow">BẮT ĐẦU HÀNH TRÌNH CỦA BẠN</span><h2>Tạo tài khoản Maison Belle.</h2><p>Nhập email và yêu cầu mã xác minh trước khi tạo tài khoản.</p><form id="register-form" class="form-grid"><label class="field">Họ và tên<input name="fullName" required maxlength="160" autocomplete="name"></label><label class="field">Số điện thoại<input type="tel" name="phone" required maxlength="30" autocomplete="tel" inputmode="tel"></label><div class="field"><label for="register-email">Email</label><div class="email-code-control"><input id="register-email" type="email" name="email" required maxlength="254" autocomplete="email" aria-describedby="register-email-feedback"><button class="outline" type="button" data-send-code disabled>GỬI MÃ</button></div><small id="register-email-feedback" data-email-feedback role="status" aria-live="polite"></small></div><label class="field">Mã xác minh<input type="text" name="verificationCode" required inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code"><small>Nhập mã gồm 6 chữ số.</small></label><label class="field">Loại da <span class="optional">(không bắt buộc)</span><select name="skinType"><option value="">Chọn sau</option><option value="oily">Da dầu</option><option value="dry">Da khô</option><option value="sensitive">Da nhạy cảm</option><option value="combination">Da hỗn hợp</option><option value="normal">Da thường</option></select></label><div class="field"><label for="register-password">Mật khẩu</label><div class="password-control"><input id="register-password" type="password" name="password" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div><small>Tối thiểu 6 ký tự.</small></div><div class="field"><label for="register-confirm-password">Nhập lại mật khẩu</label><div class="password-control"><input id="register-confirm-password" type="password" name="confirmPassword" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div></div><button class="btn" type="submit">TẠO TÀI KHOẢN</button><p class="form-message" role="status" aria-live="polite"></p></form></section>
-          <section data-auth-panel="reset" id="password-reset-panel" hidden><span class="eyebrow">KHÔI PHỤC TÀI KHOẢN</span><h2>Đặt lại mật khẩu.</h2><p>Yêu cầu mã xác minh cho email tài khoản của bạn.</p><form id="password-reset-form" class="form-grid"><div class="field"><label for="reset-email">Email</label><div class="email-code-control"><input id="reset-email" type="email" name="email" required maxlength="254" autocomplete="email" aria-describedby="reset-email-feedback"><button class="outline" type="button" data-send-code disabled>GỬI MÃ</button></div><small id="reset-email-feedback" data-email-feedback role="status" aria-live="polite"></small></div><label class="field">Mã xác minh<input type="text" name="verificationCode" required inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code"><small>Nhập mã gồm 6 chữ số.</small></label><div class="field"><label for="reset-password">Mật khẩu mới</label><div class="password-control"><input id="reset-password" type="password" name="newPassword" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div><small>Tối thiểu 6 ký tự.</small></div><div class="field"><label for="reset-confirm-password">Nhập lại mật khẩu mới</label><div class="password-control"><input id="reset-confirm-password" type="password" name="confirmPassword" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div></div><button class="btn" type="submit">ĐẶT LẠI MẬT KHẨU</button><p class="form-message" role="status" aria-live="polite"></p><button class="textlink" type="button" data-auth-mode="login">Quay lại đăng nhập</button></form></section>
+          <section data-auth-panel="login"><span class="eyebrow">MAISON BELLE · TÀI KHOẢN</span><h2>Chào mừng bạn trở lại.</h2><p>${esc(message)}</p><form id="login-form" class="form-grid"><label class="field">Địa chỉ email<input type="email" name="email" value="${esc(rememberedEmail)}" maxlength="254" required autocomplete="username"></label><div class="field"><label for="login-password">Mật khẩu</label><div class="password-control"><input id="login-password" type="password" name="password" required autocomplete="current-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div></div><div class="auth-options"><label class="auth-remember"><input type="checkbox" name="rememberEmail" ${rememberedEmail ? "checked" : ""}> Ghi nhớ email trên thiết bị này</label><button class="auth-forgot" type="button" data-forgot-password aria-controls="password-reset-panel">Quên mật khẩu?</button></div><button class="btn" type="submit">ĐĂNG NHẬP</button><p class="form-message" role="status" aria-live="polite"></p></form></section>
+          <section data-auth-panel="register" hidden><span class="eyebrow">BẮT ĐẦU HÀNH TRÌNH CỦA BẠN</span><h2>Tạo tài khoản Maison Belle.</h2><p>Nhập email và yêu cầu mã xác minh trước khi tạo tài khoản.</p><form id="register-form" class="form-grid"><label class="field">Họ và tên<input name="fullName" required maxlength="160" autocomplete="name"></label><label class="field">Số điện thoại<input type="tel" name="phone" required maxlength="30" autocomplete="tel" inputmode="tel"></label><div class="field"><label for="register-email">Địa chỉ email</label><div class="email-code-control"><input id="register-email" type="email" name="email" required maxlength="254" autocomplete="email" aria-describedby="register-email-feedback"><button class="outline" type="button" data-send-code disabled>GỬI MÃ</button></div><small id="register-email-feedback" data-email-feedback role="status" aria-live="polite"></small></div><label class="field">Mã xác minh<input type="text" name="verificationCode" required inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code"><small>Nhập mã gồm 6 chữ số.</small></label><label class="field">Loại da <span class="optional">(không bắt buộc)</span><select name="skinType"><option value="">Chọn sau</option><option value="oily">Da dầu</option><option value="dry">Da khô</option><option value="sensitive">Da nhạy cảm</option><option value="combination">Da hỗn hợp</option><option value="normal">Da thường</option></select></label><div class="field"><label for="register-password">Mật khẩu</label><div class="password-control"><input id="register-password" type="password" name="password" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div><small>Tối thiểu 6 ký tự.</small></div><div class="field"><label for="register-confirm-password">Nhập lại mật khẩu</label><div class="password-control"><input id="register-confirm-password" type="password" name="confirmPassword" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div></div><button class="btn" type="submit">TẠO TÀI KHOẢN</button><p class="form-message" role="status" aria-live="polite"></p></form></section>
+          <section data-auth-panel="reset" id="password-reset-panel" hidden><span class="eyebrow">KHÔI PHỤC TÀI KHOẢN</span><h2>Đặt lại mật khẩu.</h2><p>Yêu cầu mã xác minh cho email tài khoản của bạn.</p><form id="password-reset-form" class="form-grid"><div class="field"><label for="reset-email">Địa chỉ email</label><div class="email-code-control"><input id="reset-email" type="email" name="email" required maxlength="254" autocomplete="email" aria-describedby="reset-email-feedback"><button class="outline" type="button" data-send-code disabled>GỬI MÃ</button></div><small id="reset-email-feedback" data-email-feedback role="status" aria-live="polite"></small></div><label class="field">Mã xác minh<input type="text" name="verificationCode" required inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code"><small>Nhập mã gồm 6 chữ số.</small></label><div class="field"><label for="reset-password">Mật khẩu mới</label><div class="password-control"><input id="reset-password" type="password" name="newPassword" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div><small>Tối thiểu 6 ký tự.</small></div><div class="field"><label for="reset-confirm-password">Nhập lại mật khẩu mới</label><div class="password-control"><input id="reset-confirm-password" type="password" name="confirmPassword" required minlength="6" maxlength="200" autocomplete="new-password"><button class="password-toggle" type="button" data-password-toggle aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></div></div><button class="btn" type="submit">ĐẶT LẠI MẬT KHẨU</button><p class="form-message" role="status" aria-live="polite"></p><button class="textlink" type="button" data-auth-mode="login">Quay lại đăng nhập</button></form></section>
         </div>
       </section>`;
       $("#login-form").addEventListener("submit", async (event) => {
@@ -579,18 +774,25 @@
           update();
         });
         sendCode.addEventListener("click", async () => {
-          if (!active(generation) || !validEmail() || sending || submitting || secondsRemaining > 0) return;
+          if (!active(generation) || sending || submitting || secondsRemaining > 0) return;
+          if (!validEmail()) {
+            email.setAttribute("aria-invalid", "true");
+            feedback.textContent = "Vui lòng nhập email hợp lệ.";
+            email.focus?.();
+            return;
+          }
           const requestGeneration = generation;
           sending = true;
           status.textContent = "Đang yêu cầu mã xác minh…";
           update();
           try {
-            await (recovery ? MBApi.auth.sendPasswordResetCode : MBApi.auth.sendRegistrationCode)({ email: email.value.trim() });
+            const response = await (recovery ? MBApi.auth.sendPasswordResetCode : MBApi.auth.sendRegistrationCode)({ email: email.value.trim() });
             if (!active(requestGeneration)) return;
             status.textContent = recovery
               ? "Nếu email đã đăng ký, yêu cầu đã được tiếp nhận. Nếu chưa nhận mã, hãy thử lại sau khi hết thời gian chờ."
               : "Yêu cầu mã xác minh đã được tiếp nhận. Kiểm tra email của bạn; nếu chưa nhận mã, hãy thử lại sau khi hết thời gian chờ.";
-            secondsRemaining = 60;
+            const resendAfterSeconds = Number(response?.data?.resendAfterSeconds);
+            secondsRemaining = Number.isFinite(resendAfterSeconds) && resendAfterSeconds > 0 ? Math.ceil(resendAfterSeconds) : 60;
             timer = setInterval(() => {
               if (!active(requestGeneration)) { clearTimer(); return; }
               secondsRemaining--;
@@ -659,29 +861,41 @@
         MB.syncHeaderLogout?.(true);
         const role = user.role?.name || user.role || user.roleName || "customer";
         const ordersPromise = MBApi.orders.list({ page: 1, limit: 20 });
-        const [ordersResult, addressesResult, loyaltyResult, returnsResult] = await Promise.allSettled([
-          ordersPromise, MBApi.customers.addresses.list(), MBApi.customers.loyalty(), MBApi.returns.list({ page: 1, limit: 20 })
+        const [ordersResult, addressesResult, loyaltyResult, returnsResult, shippingRatesResult] = await Promise.allSettled([
+          ordersPromise, MBApi.customers.addresses.list(), MBApi.customers.loyalty(), MBApi.returns.list({ page: 1, limit: 20 }), MBApi.shipping.rates()
         ]);
         const orders = ordersResult.status === "fulfilled" ? listData(ordersResult.value) : [];
         const addresses = addressesResult.status === "fulfilled" ? listData(addressesResult.value) : [];
         const loyalty = loyaltyResult.status === "fulfilled" ? responseData(loyaltyResult.value) || {} : {};
         const returns = returnsResult.status === "fulfilled" ? listData(returnsResult.value) : [];
+        const shippingRates = shippingRatesResult.status === "fulfilled" ? listData(shippingRatesResult.value) : [];
+        const shippingRateOptions = shippingRates.map((rate) => `<option value="${esc(rate.regionCode)}">${esc(rate.regionName)}</option>`).join("");
         host.innerHTML = `<div class="account-top"><div><span class="eyebrow">HỒ SƠ KHÁCH HÀNG</span><h1>${esc(user.fullName || user.name || user.email || "Tài khoản")}</h1><p>${esc(role)} · ${esc(user.email || "")}</p></div><button class="outline" type="button" data-logout>ĐĂNG XUẤT</button></div>
           <section id="orders" class="account-card"><div class="section-head"><div><span class="eyebrow">LỊCH SỬ GIAO DỊCH</span><h2>Đơn hàng của tôi</h2></div></div><div id="orders-list"></div><div id="order-detail"></div></section>
           <section class="account-card"><div class="section-head"><div><span class="eyebrow">THÔNG TIN CỦA BẠN</span><h2>Hồ sơ & địa chỉ</h2></div></div>
             <form id="profile-form" class="form-grid"><label class="field">Họ tên<input name="fullName" value="${esc(user.fullName || "")}" required></label><label class="field">Số điện thoại<input name="phone" value="${esc(user.phone || "")}" autocomplete="tel"></label><label class="field">Loại da<select name="skinType"><option value="">Chưa cập nhật</option>${[["oily","Da dầu"],["dry","Da khô"],["sensitive","Da nhạy cảm"],["combination","Da hỗn hợp"],["normal","Da thường"]].map(([value,label]) => `<option value="${value}" ${user.skinType === value ? "selected" : ""}>${label}</option>`).join("")}</select></label><button class="btn" type="submit">LƯU HỒ SƠ</button><p class="form-message" role="status"></p></form>
-            <div class="section-head"><h3>Địa chỉ nhận hàng</h3></div><div id="address-list">${addressesResult.status === "rejected" ? "" : addresses.length ? addresses.map((address) => `<article class="address-row"><div><b>${esc(address.receiverName)}</b> · ${esc(address.receiverPhone)} ${address.isDefault ? '<span class="pill">MẶC ĐỊNH</span>' : ""}<p>${esc(address.fullAddress)}</p></div><button class="textlink" type="button" data-delete-address="${esc(address.id || address._id)}">Xóa</button></article>`).join("") : '<p class="empty">Chưa lưu địa chỉ nhận hàng.</p>'}</div>
-            <form id="address-form" class="form-grid"><label class="field">Người nhận<input name="receiverName" value="${esc(user.fullName || "")}" required></label><label class="field">Điện thoại<input name="receiverPhone" value="${esc(user.phone || "")}" required></label><label class="field">Địa chỉ đầy đủ<textarea name="fullAddress" required></textarea></label><label><input type="checkbox" name="isDefault"> Đặt làm địa chỉ mặc định</label><button class="outline" type="submit">THÊM ĐỊA CHỈ</button><p class="form-message" role="status"></p></form>${addressesResult.status === "rejected" ? `<p class="form-message">${esc(MB.errorMessage(addressesResult.reason))}</p>` : ""}</section>
-          <section class="account-card"><span class="eyebrow">MAISON BELLE · THÀNH VIÊN</span><h2>${esc(loyalty.membership?.tier || "bronze")} · ${Number(loyalty.membership?.pointsBalance ?? loyalty.pointsBalance ?? 0)} điểm</h2><p>Tích điểm được cập nhật khi đơn hàng hoàn tất. Lịch sử ghi nhận trực tiếp từ hệ thống.</p><div id="loyalty-history">${loyaltyResult.status === "rejected" ? `<p class="form-message">${esc(MB.errorMessage(loyaltyResult.reason))}</p>` : loyalty.history?.length ? `<div class="table-wrap"><table><thead><tr><th>Ngày</th><th>Giao dịch</th><th>Điểm</th></tr></thead><tbody>${loyalty.history.map((entry) => `<tr><td>${esc(entry.createdAt ? new Date(entry.createdAt).toLocaleDateString("vi-VN") : "—")}</td><td>${esc(entry.note || entry.type || "Điểm thành viên")}</td><td>${esc(entry.points > 0 ? `+${entry.points}` : entry.points)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty">Chưa có giao dịch điểm.</p>'}</div></section>
-          <section class="account-card"><div class="section-head"><div><span class="eyebrow">HỖ TRỢ SAU MUA</span><h2>Đổi trả của tôi</h2></div></div><div id="returns-list">${returnsResult.status === "rejected" ? `<p class="form-message">${esc(MB.errorMessage(returnsResult.reason))}</p>` : returns.length ? `<div class="table-wrap"><table><thead><tr><th>Mã yêu cầu</th><th>Đơn hàng</th><th>Lý do</th><th>Trạng thái</th><th>Ngày tạo</th></tr></thead><tbody>${returns.map((item) => `<tr><td>${esc(item.returnCode || item.id || item._id)}</td><td>${esc(item.orderCode || item.orderId)}</td><td>${esc(item.reason)}</td><td>${esc(item.status)}</td><td>${esc(item.createdAt ? new Date(item.createdAt).toLocaleDateString("vi-VN") : "—")}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty">Chưa có yêu cầu đổi trả.</p>'}</div></section>`;
+            <div class="section-head"><h3>Địa chỉ nhận hàng</h3><p class="service">Địa chỉ mặc định sẽ được điền sẵn khi bạn thanh toán trong giỏ hàng.</p></div><div id="address-list">${addressesResult.status === "rejected" ? "" : addresses.length ? addresses.map((address) => `<article class="address-row"><div><b>${esc(address.receiverName)}</b> · ${esc(address.receiverPhone)}<p>${esc(address.fullAddress)}${address.regionName ? ` · ${esc(address.regionName)}` : ""}</p></div><button class="textlink" type="button" data-delete-address="${esc(address.id || address._id)}">Xóa</button></article>`).join("") : '<p class="empty">Chưa lưu địa chỉ nhận hàng.</p>'}</div>
+             <form id="address-form" class="form-grid"><label class="field">Người nhận<input name="receiverName" value="${esc(user.fullName || "")}" required></label><label class="field">Điện thoại<input name="receiverPhone" value="${esc(user.phone || "")}" required></label><label class="field">Địa chỉ đầy đủ<textarea name="fullAddress" required></textarea></label><label class="field">Tỉnh / thành phố<select name="regionCode" required><option value="">Chọn tỉnh / thành phố</option>${shippingRateOptions}</select></label><label><input type="checkbox" name="isDefault"> Đặt làm địa chỉ mặc định</label><button class="outline" type="submit">THÊM ĐỊA CHỈ</button><p class="form-message" role="status"></p></form>${shippingRatesResult.status === "rejected" ? `<p class="form-message">Không tải được danh sách tỉnh / thành phố để lưu địa chỉ.</p>` : addressesResult.status === "rejected" ? `<p class="form-message">${esc(MB.errorMessage(addressesResult.reason))}</p>` : ""}</section>
+          <section class="account-card"><span class="eyebrow">MAISON BELLE · THÀNH VIÊN</span><h2>${esc(membershipTierText(loyalty.membership?.tier))} · ${Number(loyalty.membership?.pointsBalance ?? loyalty.pointsBalance ?? 0)} điểm</h2><p>Tích điểm được cập nhật khi đơn hàng hoàn tất. Lịch sử ghi nhận trực tiếp từ hệ thống.</p><div id="loyalty-history">${loyaltyResult.status === "rejected" ? `<p class="form-message">${esc(MB.errorMessage(loyaltyResult.reason))}</p>` : loyalty.history?.length ? `<div class="table-wrap"><table><thead><tr><th>Ngày</th><th>Giao dịch</th><th>Điểm</th></tr></thead><tbody>${loyalty.history.map((entry) => `<tr><td>${esc(entry.createdAt ? new Date(entry.createdAt).toLocaleDateString("vi-VN") : "—")}</td><td>${esc(entry.note || loyaltyActivityText(entry.type))}</td><td>${esc(entry.points > 0 ? `+${entry.points}` : entry.points)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty">Chưa có giao dịch điểm.</p>'}</div></section>
+          <section class="account-card"><div class="section-head"><div><span class="eyebrow">HỖ TRỢ SAU MUA</span><h2>Đổi trả của tôi</h2></div></div><div id="returns-list">${returnsResult.status === "rejected" ? `<p class="form-message">${esc(MB.errorMessage(returnsResult.reason))}</p>` : returns.length ? `<div class="table-wrap"><table><thead><tr><th>Mã yêu cầu</th><th>Đơn hàng</th><th>Lý do</th><th>Trạng thái</th><th>Ngày tạo</th></tr></thead><tbody>${returns.map((item) => `<tr><td>${esc(item.returnCode || item.id || item._id)}</td><td>${esc(item.orderCode || item.orderId)}</td><td>${esc(item.reason)}</td><td>${esc(statusText(item.status))}</td><td>${esc(item.createdAt ? new Date(item.createdAt).toLocaleDateString("vi-VN") : "—")}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty">Chưa có yêu cầu đổi trả.</p>'}</div></section>`;
+        const profileForm = $("#profile-form");
+        if (profileForm && !profileForm.elements.email) {
+          const emailField = document.createElement("label");
+          emailField.className = "field profile-email-field";
+          emailField.innerHTML = `<span>Địa chỉ email</span><input type="email" name="email" value="${esc(user.email || "")}" readonly aria-readonly="true" autocomplete="username"><small>Địa chỉ email đăng nhập của bạn</small>`;
+          const skinField = profileForm.querySelector('[name="skinType"]')?.closest(".field");
+          profileForm.insertBefore(emailField, skinField || profileForm.firstElementChild || null);
+        }
         const ordersHost = $("#orders-list");
         if (ordersResult.status === "rejected") MB.showState(ordersHost, "error", MB.errorMessage(ordersResult.reason));
         else if (!orders.length) MB.showState(ordersHost, "empty", "Bạn chưa có đơn hàng.");
         else ordersHost.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Mã đơn</th><th>Ngày tạo</th><th>Tổng tiền</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>${orders.map((order) => {
           const id = String(order._id || order.id || ""), status = String(order.orderStatus || order.status || "");
           const paymentState = String(order.paymentStatus || order.payment?.status || "pending");
-          const mockPayment = order.paymentMethod === "mock" && paymentState !== "paid" && !["cancelled", "returned"].includes(status);
-          return `<tr><td>${esc(order.orderCode || order.code || id || "—")} ${demoTag(order)}</td><td>${esc(order.createdAt ? new Date(order.createdAt).toLocaleDateString("vi-VN") : "—")}</td><td>${MB.money(order.finalAmount ?? order.totalAmount ?? order.total ?? 0)}</td><td>${esc(statusText(status))}</td><td><button type="button" class="textlink" data-order-detail="${esc(id)}">Chi tiết & hóa đơn</button>${mockPayment ? ` · <button type="button" class="textlink" data-pay-order="${esc(id)}">${paymentState === "failed" ? "Thử thanh toán lại" : "Thanh toán mô phỏng"}</button>` : ""}${status.toLowerCase() === "pending" ? ` · <button type="button" class="textlink" data-cancel-order="${esc(id)}">Hủy đơn</button>` : ""}</td></tr>`;
+          const bankTransfer = ["bank_transfer", "mock"].includes(String(order.paymentMethod || ""));
+          const paymentWaiting = bankTransfer && paymentState === "pending";
+          const visibleStatus = paymentWaiting ? `Chờ xác nhận chuyển khoản · ${statusText(status)}` : statusText(status);
+          return `<tr><td>${esc(order.orderCode || order.code || id || "\u2014")} ${demoTag(order)}</td><td>${esc(order.createdAt ? new Date(order.createdAt).toLocaleDateString("vi-VN") : "\u2014")}</td><td>${MB.money(order.finalAmount ?? order.totalAmount ?? order.total ?? 0)}</td><td>${esc(visibleStatus)}</td><td><button type="button" class="textlink" data-order-detail="${esc(id)}">${paymentWaiting ? "Xem chuyển khoản" : "Chi tiết & hóa đơn"}</button>${canCancelOrder(status) ? ` · <button type="button" class="textlink" data-cancel-order="${esc(id)}">Hủy đơn</button>` : ""}</td></tr>`;
         }).join("")}</tbody></table></div>`;
       } catch (error) {
         if (error.status === 401) loginForm();
@@ -711,19 +925,13 @@
           const lines = order.items || order.orderItems || [];
           const payment = order.payment || {};
           const invoice = order.invoice || order.invoiceSnapshot || null;
-          const returnable = ["delivered", "completed"].includes(String(order.orderStatus || ""));
+          const bankTransfer = ["bank_transfer", "mock"].includes(String(order.paymentMethod || ""));
+          const paymentStatus = String(payment.status || order.paymentStatus || "").toLowerCase();
+          const paymentSettled = paymentStatus === "paid";
+          const returnable = ["delivered", "completed"].includes(String(order.orderStatus || "")) && (!bankTransfer || paymentSettled);
           const returnForm = returnable && lines.length ? `<form data-return-request data-order-id="${esc(order.id || order._id || detailButton.dataset.orderDetail)}" class="form-grid"><label class="field">Sản phẩm<select name="variantId" required>${lines.map((line, index) => `<option value="${esc(line.variantId)}" data-max="${esc(line.quantity)}" ${index === 0 ? "selected" : ""}>${esc(line.productName || line.name || "Sản phẩm")} · tối đa ${esc(line.quantity)}</option>`).join("")}</select></label><label class="field">Số lượng<input type="number" name="quantity" min="1" max="${Number(lines[0]?.quantity) || 1}" value="1" required></label><label class="field">Lý do<textarea name="reason" required maxlength="1000"></textarea></label><button class="outline" type="submit">GỬI YÊU CẦU ĐỔI TRẢ</button><p class="form-message" role="status"></p></form>` : "";
-          detailHost.innerHTML = `<div class="order-detail"><span class="eyebrow">CHI TIẾT ĐƠN ${demoTag(order)}</span><h3>${esc(order.orderCode || order.code || order._id || "Đơn hàng")}</h3>${lines.length ? `<div class="table-wrap"><table><thead><tr><th>Sản phẩm</th><th>SKU</th><th>SL</th><th>Đơn giá</th></tr></thead><tbody>${lines.map((line) => `<tr><td>${esc(line.productName || line.name || line.productSnapshot?.name || "Sản phẩm")}</td><td>${esc(line.sku || line.variantSku || "—")}</td><td>${esc(line.quantity ?? "—")}</td><td>${MB.money(line.unitPrice ?? line.price ?? 0)}</td></tr>`).join("")}</tbody></table></div>` : "<p>Đơn chưa có mặt hàng.</p>"}<p>Thanh toán: ${esc(payment.status || order.paymentStatus || "đang chờ")}${payment.isMock ? " · mô phỏng, không thu tiền thật" : ""}</p><p>Hóa đơn: ${invoice ? `${esc(invoice.invoiceCode || invoice.code || invoice._id || "")} · ${esc(invoice.status || "")}` : "Chưa phát hành"} · ${MB.money(invoice?.amount ?? order.finalAmount ?? 0)}</p>${returnable ? `<h4>Yêu cầu đổi trả</h4>${returnForm}` : ""}</div>`;
+          detailHost.innerHTML = `<div class="order-detail"><span class="eyebrow">CHI TIẾT ĐƠN ${demoTag(order)}</span><h3>${esc(order.orderCode || order.code || order._id || "Đơn hàng")}</h3>${lines.length ? `<div class="table-wrap"><table><thead><tr><th>Sản phẩm</th><th>Mã sản phẩm</th><th>SL</th><th>Đơn giá</th></tr></thead><tbody>${lines.map((line) => `<tr><td>${esc(line.productName || line.name || line.productSnapshot?.name || "Sản phẩm")}</td><td>${esc(line.sku || line.variantSku || "—")}</td><td>${esc(line.quantity ?? "—")}</td><td>${MB.money(line.unitPrice ?? line.price ?? 0)}</td></tr>`).join("")}</tbody></table></div>` : "<p>Đơn chưa có mặt hàng.</p>"}<p>Thanh toán: ${esc(statusText(paymentStatus || "đang chờ"))} \u00b7 ${esc(paymentMethodText(payment.method || order.paymentMethod))}</p>${bankTransfer && !paymentSettled ? bankTransferMarkup(order) : ""}<p>Hóa đơn: ${invoice ? `${esc(invoice.invoiceCode || invoice.code || invoice._id || "")} · ${esc(statusText(invoice.status || ""))}` : "Chưa phát hành"} · ${MB.money(invoice?.amount ?? order.finalAmount ?? 0)}</p>${returnable ? `<h4>Yêu cầu đổi trả</h4>${returnForm}` : ""}</div>`;
         } catch (error) { showError(detailHost, error); }
-      }
-      if (paymentButton) {
-        paymentButton.disabled = true;
-        try {
-          await MBApi.orders.payment(paymentButton.dataset.payOrder, { outcome: "success" });
-          MB.toast("Thanh toán mô phỏng thành công; không có khoản tiền thật được thu.", "success");
-          await load();
-        } catch (error) { MB.toast(MB.errorMessage(error), "error"); }
-        finally { paymentButton.disabled = false; }
       }
       if (deleteAddressButton) {
         if (!root.confirm("Xóa địa chỉ nhận hàng này?")) return;
@@ -733,11 +941,23 @@
         finally { deleteAddressButton.disabled = false; }
       }
       if (cancelButton) {
-        if (!root.confirm("Bạn muốn gửi yêu cầu hủy đơn này chứ?")) return;
         cancelButton.disabled = true;
-        try { await MBApi.orders.updateStatus(cancelButton.dataset.cancelOrder, { status: "cancelled" }); MB.toast("Đơn đã được cập nhật.", "success"); await load(); }
-        catch (error) { MB.toast(MB.errorMessage(error), "error"); }
-        finally { cancelButton.disabled = false; }
+        const originalLabel = cancelButton.textContent;
+        cancelButton.textContent = "Đang hủy…";
+        MB.toast("Đang gửi yêu cầu hủy đơn…");
+        try { await MBApi.orders.cancel(cancelButton.dataset.cancelOrder); MB.toast("Đơn đã được hủy.", "success"); await load(); }
+        catch (error) {
+          const message = MB.errorMessage(error);
+          MB.toast(message, "error");
+          cancelButton.closest("td")?.querySelectorAll("[data-cancel-message]").forEach((node) => node.remove());
+          const note = document.createElement("span");
+          note.className = "inline-action-message error";
+          note.dataset.cancelMessage = "true";
+          note.textContent = message;
+          cancelButton.insertAdjacentElement("afterend", note);
+          setTimeout(() => note.remove(), 5000);
+        }
+        finally { cancelButton.disabled = false; cancelButton.textContent = originalLabel; }
       }
     });
     host.addEventListener("change", (event) => {
@@ -758,11 +978,13 @@
       try {
         const values = Object.fromEntries(new FormData(form).entries());
         if (form.id === "profile-form") {
+          delete values.email;
           await MBApi.customers.updateProfile(values);
           MB.toast("Hồ sơ đã được cập nhật.", "success");
           await load();
         } else if (form.id === "address-form") {
           values.isDefault = form.elements.isDefault.checked;
+          values.regionName = form.elements.regionCode.selectedOptions[0]?.textContent?.trim() || "";
           await MBApi.customers.addresses.create(values);
           MB.toast("Đã lưu địa chỉ nhận hàng.", "success");
           await load();

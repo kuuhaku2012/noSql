@@ -47,7 +47,7 @@ before(async () => {
   await db.collection("vouchers").insertOne({ code: "BELLE10", discountType: "percentage", discountValue: 10, minOrderValue: 100000, maxDiscountAmount: 100000, startDate: new Date("2026-01-01"), endDate: new Date("2027-01-01"), totalUsageLimit: 10, usedCount: 0, isActive: true });
   await db.collection("shipping_rates").insertOne({ _id: new ObjectId(), code: "hcm-demo", regionName: "Hồ Chí Minh (demo)", fee: 25000, currency: "VND", isDemo: true, isActive: true });
   await db.collection("orders").createIndex({ userId: 1, checkoutRequestId: 1 }, { unique: true, partialFilterExpression: { checkoutRequestId: { $type: "string" } } });
-  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
+  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../frontend/", import.meta.url) } });
   customerAgent = request.agent(app);
   salesAgent = request.agent(app);
   await customerAgent.post("/api/auth/login").send({ email: customer.email, password: "Demo@123" });
@@ -1274,7 +1274,7 @@ test("mock payment restores artifacts and releases its lock when an update ACK i
         });
       }
     };
-    const failingAgent = request.agent(createApp({ db: failingDb, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } }));
+    const failingAgent = request.agent(createApp({ db: failingDb, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../frontend/", import.meta.url) } }));
     const login = await failingAgent.post("/api/auth/login").send({ email: customer.email, password: "Demo@123" });
     assert.equal(login.status, 200);
 

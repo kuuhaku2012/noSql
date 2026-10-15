@@ -55,7 +55,7 @@ before(async () => {
     { _id: new ObjectId(), code: "MODEL10", discountType: "percentage", discountValue: 10, minOrderValue: 0, startDate: new Date("2026-01-01"), endDate: new Date("2027-12-31"), isActive: true, usedCount: 0 },
     { _id: new ObjectId(), code: "MODELCLAIM", discountType: "fixed", discountValue: 10000, minOrderValue: 0, startDate: new Date("2026-01-01"), endDate: new Date("2027-12-31"), isActive: true, usedCount: 0 }
   ]);
-  app = createApp({ db, config: { jwtSecret: "model-secret", frontendRoot: new URL("../../", import.meta.url) } });
+  app = createApp({ db, config: { jwtSecret: "model-secret", frontendRoot: new URL("../../frontend/", import.meta.url) } });
   customerAgent = request.agent(app);
   managerAgent = request.agent(app);
   salesAgent = request.agent(app);

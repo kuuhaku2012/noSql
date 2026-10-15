@@ -61,7 +61,7 @@ before(async () => {
     { _id: shippedOrderId, orderCode: "CRUD-SHIPPED", userId: users[0]._id, storeId, orderStatus: "shipped", finalAmount: 100000, items: [{ variantId, quantity: 1 }], createdAt: new Date() }
   ]);
 
-  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
+  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../frontend/", import.meta.url) } });
   customerAgent = await login("customer-crud@test.local");
   salesAgent = await login("sales-crud@test.local");
   warehouseAgent = await login("warehouse-crud@test.local");

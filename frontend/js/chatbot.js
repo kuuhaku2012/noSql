@@ -1,5 +1,5 @@
 (function (root, factory) {
-  const chatbot = factory();
+  const chatbot = factory(root);
   if (typeof module === "object" && module.exports) module.exports = chatbot;
   if (root) root.MBChatbot = chatbot;
   if (root && root.document) {
@@ -10,7 +10,7 @@
       mount();
     }
   }
-})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (root) {
   const allowedLinks = new Set(["products.html", "cart.html", "warranty.html", "consultation.html"]);
   const intents = [
     {
@@ -74,12 +74,28 @@
     return cloneReply(match || fallback);
   }
 
+  // Gemini returns Markdown by default. Keep the widget intentionally plain text
+  // so formatting markers cannot leak into the conversation or split a sentence.
+  function cleanAssistantText(value) {
+    return String(value ?? "")
+      .replace(/\r\n?/g, "\n")
+      .replace(/```(?:[\w-]+)?\n?/g, "")
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/__(.*?)__/g, "$1")
+      .replace(/~~(.*?)~~/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+      .replace(/^\s*[-*]\s+/gm, "• ")
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+      .trim();
+  }
+
   function appendMessage(container, text, kind) {
     const paragraph = container.ownerDocument.createElement("p");
     paragraph.className = kind === "user"
       ? "chatbot-message chatbot-message-user"
       : "chatbot-message chatbot-message-bot";
-    paragraph.textContent = String(text ?? "");
+    paragraph.textContent = kind === "user" ? String(text ?? "") : cleanAssistantText(text);
     container.append(paragraph);
     return paragraph;
   }
@@ -99,11 +115,28 @@
       return element;
     };
 
-    const launcher = setAttributes(makeElement("button", "chatbot-launcher", "Chat với Maison Belle"), {
+    const launcher = setAttributes(makeElement("button", "chatbot-launcher"), {
       type: "button",
       "aria-controls": "mb-chatbot-panel",
-      "aria-expanded": "false"
+      "aria-expanded": "false",
+      "aria-label": "Mở trò chuyện với Maison Belle"
     });
+    const launcherAvatar = setAttributes(makeElement("img", "chatbot-avatar"), {
+      src: "img/maison-belle-chatbot.svg",
+      alt: "",
+      "aria-hidden": "true",
+      width: "48",
+      height: "48",
+      decoding: "async"
+    });
+    const launcherCopy = makeElement("span", "chatbot-launcher-copy");
+    launcherCopy.append(makeElement("span", "chatbot-launcher-eyebrow", "MAISON BELLE"));
+    launcherCopy.append(makeElement("span", "chatbot-launcher-label", "Hỏi tư vấn"));
+    const launcherStatus = makeElement("span", "chatbot-launcher-status");
+    launcherStatus.setAttribute("aria-hidden", "true");
+    launcher.append(launcherAvatar);
+    launcher.append(launcherCopy);
+    launcher.append(launcherStatus);
     const panel = setAttributes(makeElement("section", "chatbot-panel"), {
       id: "mb-chatbot-panel",
       role: "dialog",
@@ -112,12 +145,27 @@
     panel.hidden = true;
 
     const panelHeader = makeElement("div", "chatbot-header");
+    const panelIdentity = makeElement("div", "chatbot-identity");
+    const panelAvatar = setAttributes(makeElement("img", "chatbot-avatar chatbot-avatar-header"), {
+      src: "img/maison-belle-chatbot.svg",
+      alt: "",
+      "aria-hidden": "true",
+      width: "40",
+      height: "40",
+      decoding: "async"
+    });
+    const titleGroup = makeElement("div", "chatbot-title-group");
     const title = makeElement("p", "chatbot-title", "Maison Belle · Hỗ trợ");
+    const online = makeElement("span", "chatbot-online", "Đang online");
+    titleGroup.append(title);
+    titleGroup.append(online);
+    panelIdentity.append(panelAvatar);
+    panelIdentity.append(titleGroup);
     const close = setAttributes(makeElement("button", "chatbot-close", "×"), {
       type: "button",
       "aria-label": "Đóng trò chuyện"
     });
-    panelHeader.append(title);
+    panelHeader.append(panelIdentity);
     panelHeader.append(close);
 
     const log = setAttributes(makeElement("div", "chatbot-log"), {
@@ -136,8 +184,8 @@
       { text: "Đặt lịch tư vấn", className: "chatbot-suggestion-consultation" }
     ];
 
-    const answerQuestion = (question) => {
-      const answer = replyFor(question);
+    const conversation = [];
+    const appendAnswer = (answer) => {
       appendMessage(log, answer.text, "bot");
       if (answer.link && allowedLinks.has(answer.link.href)) {
         const link = setAttributes(makeElement("a", "chatbot-answer-link", answer.link.label), {
@@ -146,6 +194,37 @@
         log.append(link);
       }
       log.scrollTop = log.scrollHeight;
+    };
+    const answerQuestion = (question) => {
+      const localAnswer = replyFor(question);
+      if (!root.MBApi?.chat) {
+        appendAnswer(localAnswer);
+        return;
+      }
+      const answerMessage = appendMessage(log, "Đang tìm câu trả lời…", "bot");
+      const history = conversation.slice(-8);
+      conversation.push({ role: "user", text: question });
+      root.MBApi.chat({ message: question, history }).then((response) => {
+        const payload = root.MBApi.data ? root.MBApi.data(response) : response?.data;
+        const answer = payload?.message ? { ...localAnswer, text: payload.message, link: null } : localAnswer;
+        const cleanAnswer = cleanAssistantText(answer.text);
+        answerMessage.textContent = cleanAnswer;
+        conversation.push({ role: "model", text: cleanAnswer });
+        if (answer.link && allowedLinks.has(answer.link.href)) {
+          const link = setAttributes(makeElement("a", "chatbot-answer-link", answer.link.label), { href: answer.link.href });
+          log.append(link);
+        }
+        log.scrollTop = log.scrollHeight;
+      }).catch(() => {
+        const cleanAnswer = cleanAssistantText(localAnswer.text);
+        answerMessage.textContent = cleanAnswer;
+        conversation.push({ role: "model", text: cleanAnswer });
+        if (localAnswer.link && allowedLinks.has(localAnswer.link.href)) {
+          const link = setAttributes(makeElement("a", "chatbot-answer-link", localAnswer.link.label), { href: localAnswer.link.href });
+          log.append(link);
+        }
+        log.scrollTop = log.scrollHeight;
+      });
     };
 
     for (const prompt of prompts) {

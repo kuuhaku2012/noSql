@@ -5,6 +5,12 @@ import { toReference } from "../lib/validation.js";
 import { authenticate } from "../middleware/auth.js";
 import { createOrder, serializeOrder, transitionOrder } from "../services/order-service.js";
 
+const customerCancellableStatuses = new Set(["pending", "requested", "confirmed", "processing"]);
+
+function canCustomerCancel(order) {
+  return customerCancellableStatuses.has(String(order.orderStatus || order.status || "").toLowerCase());
+}
+
 function serializeRecord(record) {
   if (!record) return null;
   return { ...record, id: String(record._id), _id: undefined, orderId: record.orderId ? String(record.orderId) : undefined };
@@ -49,7 +55,7 @@ export function ordersRouter({ db }) {
     if (!staff) filter.userId = req.user._id;
     const order = await orders.findOne(filter);
     if (!order) throw notFound("Order not found");
-    if (!staff && order.orderStatus !== "pending") throw new HttpError(403, "FORBIDDEN", "Only pending orders can be cancelled by customers");
+    if (!staff && !canCustomerCancel(order)) throw new HttpError(403, "ORDER_NOT_CANCELLABLE", "Đơn hàng chỉ có thể hủy trước khi chuyển sang trạng thái đang giao.");
     const updated = await transitionOrder({ db, order, user: req.user, status: "cancelled", note: req.body?.note || "Order cancelled" });
     res.json({ data: serializeOrder(updated) });
   });
@@ -221,14 +227,16 @@ export function ordersRouter({ db }) {
 
   router.patch("/:id/status", async (req, res) => {
     if (!req.body.status) throw new HttpError(400, "VALIDATION_ERROR", "status is required");
+    const requestedStatus = String(req.body.status).trim().toLowerCase();
+    const isCancellation = ["cancelled", "canceled", "cancel", "hủy", "huỷ"].includes(requestedStatus);
     const filter = { _id: toReference(req.params.id, "id") };
     const staff = ["sales", "warehouse", "manager"].includes(req.user.role);
     if (!staff) filter.userId = req.user._id;
     const order = await orders.findOne(filter);
     if (!order) throw notFound("Order not found");
-    if (!staff && req.body.status !== "cancelled") throw new HttpError(403, "FORBIDDEN", "Customers can only cancel their pending order");
-    if (!staff && order.orderStatus !== "pending") throw new HttpError(403, "FORBIDDEN", "Only pending orders can be cancelled by customers");
-    const updated = await transitionOrder({ db, order, user: req.user, status: req.body.status, note: req.body.note || "" });
+    if (!staff && !isCancellation) throw new HttpError(403, "FORBIDDEN", "Khách hàng chỉ có thể hủy đơn hàng.");
+    if (!staff && !canCustomerCancel(order)) throw new HttpError(403, "ORDER_NOT_CANCELLABLE", "Đơn hàng chỉ có thể hủy trước khi chuyển sang trạng thái đang giao.");
+    const updated = await transitionOrder({ db, order, user: req.user, status: isCancellation ? "cancelled" : requestedStatus, note: req.body.note || "" });
     res.json({ data: serializeOrder(updated) });
   });
   return router;

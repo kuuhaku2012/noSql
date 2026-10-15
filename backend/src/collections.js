@@ -31,6 +31,7 @@ export function collections(db) {
     inventoryLogs: db.collection("inventory_logs"),
     memberships: db.collection("memberships"),
     pointHistories: db.collection("point_histories"),
-    userAddresses: db.collection("user_addresses")
+    userAddresses: db.collection("user_addresses"),
+    knowledgeArticles: db.collection("knowledge_articles")
   };
 }

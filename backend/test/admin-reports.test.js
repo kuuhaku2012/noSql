@@ -71,7 +71,7 @@ before(async () => {
     }
   ]);
 
-  const app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
+  const app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../frontend/", import.meta.url) } });
   managerAgent = request.agent(app);
   const login = await managerAgent.post("/api/auth/login").send({ email: "manager-reports@test.local", password: "Demo@123" });
   assert.equal(login.status, 200);

@@ -4,7 +4,7 @@
   if (root) root.MBWarrantyPage = page;
   if (root?.document) root.document.addEventListener("DOMContentLoaded", () => page.bind());
 })(typeof globalThis !== "undefined" ? globalThis : this, function (root) {
-  const statusLabels = { pending: "Chờ xác nhận", confirmed: "Đã xác nhận", processing: "Đang xử lý", shipped: "Đang giao", delivered: "Đã giao", completed: "Hoàn tất", cancelled: "Đã hủy", returned: "Đã trả" };
+  const statusLabels = { pending: "Chờ xác nhận", requested: "Đã gửi yêu cầu", confirmed: "Đã xác nhận", processing: "Đang xử lý", shipped: "Đang giao", delivered: "Đã giao", completed: "Hoàn tất", cancelled: "Đã hủy", returned: "Đã trả", paid: "Đã thanh toán", failed: "Thanh toán thất bại", issued: "Đã phát hành", rejected: "Từ chối", refunded: "Đã hoàn tiền", exchanged: "Đã đổi hàng" };
   const esc = (value) => root.MB?.escape ? root.MB.escape(value) : String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
   const unwrap = (response) => response?.data ?? response;
   const list = (response) => {

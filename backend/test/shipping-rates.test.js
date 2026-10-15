@@ -48,7 +48,7 @@ before(async () => {
     { code: "inactive-demo", regionName: "Inactive (demo)", fee: 10000, currency: "VND", isActive: false, isDemo: true }
   ]);
 
-  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
+  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../frontend/", import.meta.url) } });
   [managerAgent, salesAgent, customerAgent, warehouseAgent] = users.map(() => request.agent(app));
   for (const [agent, user] of [[managerAgent, users[0]], [salesAgent, users[1]], [customerAgent, users[2]], [warehouseAgent, users[3]]]) {
     const login = await agent.post("/api/auth/login").send({ email: user.email, password: "Demo@123" });

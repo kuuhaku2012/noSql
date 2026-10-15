@@ -66,7 +66,7 @@ export async function createOrder({ db, user, body }) {
   }
   if (!Array.isArray(body.items) || !body.items.length) throw new HttpError(400, "VALIDATION_ERROR", "At least one order item is required");
   validateBody({ paymentMethod: { required: true, type: "string" } }, body);
-  if (!["cod", "mock"].includes(body.paymentMethod)) throw new HttpError(400, "VALIDATION_ERROR", "paymentMethod must be cod or mock");
+  if (!["cod", "bank_transfer", "mock"].includes(body.paymentMethod)) throw new HttpError(400, "VALIDATION_ERROR", "paymentMethod must be cod or bank_transfer");
   if (!body.shippingAddress || typeof body.shippingAddress !== "object" || Array.isArray(body.shippingAddress)) throw new HttpError(400, "VALIDATION_ERROR", "shippingAddress is required");
   validateBody({
     receiverName: { required: true, type: "string", maxLength: 120 },
@@ -182,7 +182,7 @@ export async function createOrder({ db, user, body }) {
       throw error;
     }
     await db.collection("order_histories").insertOne({ orderId: order._id, oldStatus: null, newStatus: "pending", note: "Order created", createdByUserId: user._id, createdAt: now });
-    await db.collection("payments").insertOne({ orderId: order._id, method: body.paymentMethod, status: "pending", amount: order.finalAmount, isMock: true, createdAt: now });
+    await db.collection("payments").insertOne({ orderId: order._id, method: body.paymentMethod, status: "pending", amount: order.finalAmount, isMock: body.paymentMethod === "mock", createdAt: now });
     await db.collection("invoices").insertOne({ orderId: order._id, invoiceCode: `INV-${order.orderCode}`, status: "pending", amount: order.finalAmount, createdAt: now });
     const completion = await db.collection("orders").updateOne(
       { _id: order._id, checkoutComplete: false },

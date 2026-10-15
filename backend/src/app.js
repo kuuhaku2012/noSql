@@ -34,6 +34,7 @@ import { userVouchersRouter } from "./routes/user-vouchers.js";
 import { flashSalesRouter } from "./routes/flash-sales.js";
 import { shippingRouter } from "./routes/shipping.js";
 import { adminShippingRatesRouter } from "./routes/admin-shipping-rates.js";
+import { adminKnowledgeRouter, chatRouter } from "./routes/knowledge.js";
 
 function toPath(value) {
   return value instanceof URL ? fileURLToPath(value) : value;
@@ -77,6 +78,7 @@ export function createApp({ db = null, config = getConfig(), mailer: injectedMai
     api.use("/appointments", appointmentsRouter({ db }));
     api.use("/orders", ordersRouter({ db }));
     api.use("/shipping", shippingRouter({ db }));
+    api.use("/chat", chatRouter({ db, config }));
     api.use("/customers", customersRouter({ db }));
     api.use("/returns", returnsRouter({ db }));
     api.use("/admin/products", adminProductsRouter({ db }));
@@ -91,6 +93,7 @@ export function createApp({ db = null, config = getConfig(), mailer: injectedMai
     api.use("/admin/returns", adminReturnsRouter({ db }));
     api.use("/admin/reports", adminReportsRouter({ db }));
     api.use("/admin", adminFinanceRouter({ db }));
+    api.use("/admin/knowledge", adminKnowledgeRouter({ db }));
   }
 
   app.use("/api", api);

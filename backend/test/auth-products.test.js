@@ -59,7 +59,7 @@ before(async () => {
   await db.collection("inventories").insertOne({ storeId: new ObjectId("000000000000000000000001"), variantId, stockQuantity: 10, reservedQuantity: 0, version: 1 });
   app = createApp({ db, mailer: { configured: true, async sendAuthCode({ email, purpose, code }) {
     sentCodes.set(`${purpose}:${email}`, code);
-  } }, config: { jwtSecret: "test-secret", authCodeSecret: "test-auth-code-secret-at-least-32-chars", trustProxy: false, frontendRoot: new URL("../../", import.meta.url) } });
+  } }, config: { jwtSecret: "test-secret", authCodeSecret: "test-auth-code-secret-at-least-32-chars", trustProxy: false, frontendRoot: new URL("../../frontend/", import.meta.url) } });
 });
 
 after(async () => {

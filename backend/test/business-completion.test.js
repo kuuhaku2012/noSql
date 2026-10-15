@@ -84,7 +84,7 @@ before(async () => {
     startTime: "09:00", endTime: "10:00", consultationType: "skincare", status: "confirmed"
   });
 
-  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
+  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../frontend/", import.meta.url) } });
   managerAgent = await login("manager-completion@test.local");
   salesAgent = await login("sales-completion@test.local");
   warehouseAgent = await login("warehouse-completion@test.local");

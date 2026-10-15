@@ -56,7 +56,7 @@ async function makeFixture({ config: overrides = {}, configured = true } = {}) {
     sent.set(`${purpose}:${email}`, code);
   } };
   const config = { jwtSecret: "test-secret", authCodeSecret: secret, trustProxy: false,
-    frontendRoot: new URL("../../", import.meta.url), ...overrides };
+    frontendRoot: new URL("../../frontend/", import.meta.url), ...overrides };
   const app = createApp({ db, config, mailer });
   return { db, mailer, sent, attempted, config, app, agent: request.agent(app) };
 }

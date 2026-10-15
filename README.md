@@ -9,6 +9,7 @@ Demo cửa hàng mỹ phẩm gồm giao diện thương mại điện tử và A
 - Tài khoản khách hàng, đơn hàng, tư vấn/chăm sóc và bảo hành.
 - Đăng ký bằng mã xác minh email và tự đặt lại mật khẩu qua email khi SMTP đã được cấu hình.
 - Khu vực quản trị cho sản phẩm, danh mục, kho, khuyến mãi, voucher, đơn hàng, đổi trả, giao hàng và báo cáo.
+- Trợ lý chatbot Gemini dùng kho tri thức do quản trị viên duy trì trong admin.
 - Giao diện responsive, hỗ trợ sáng/tối.
 
 ## Chạy ứng dụng
@@ -40,11 +41,23 @@ Backend tự nạp `backend/.env` qua `dotenv/config` khi khởi động. Điề
 
 Không đưa thông tin SMTP hoặc secret vào mã nguồn, log hay Git. Khi cấu hình chưa đủ, API trả `EMAIL_NOT_CONFIGURED` thay vì giả vờ đã gửi thư. Với yêu cầu gửi mã đặt lại mật khẩu, phản hồi `202` chỉ có nghĩa là hệ thống đã tiếp nhận yêu cầu; nó **không xác nhận email đã được gửi**. Nếu không nhận được mã, hãy thử lại sau thời gian chờ gửi lại.
 
+### Cấu hình Gemini
+
+Đặt khóa Gemini trong `backend/.env` để khóa chỉ được dùng ở backend, không xuất hiện trong JavaScript trình duyệt:
+
+| Biến | Mục đích |
+| --- | --- |
+| `GEMINI_API_KEY` | Khóa API Gemini |
+| `GEMINI_MODEL` | Mô hình, mặc định `gemini-3-flash-preview` |
+| `GEMINI_TIMEOUT_MS` | Thời gian chờ, mặc định 20000 ms |
+
+Quản trị viên mở **Kho tri thức** trong `admin.html` để thêm, chỉnh sửa, bật hoặc ẩn nội dung mà chatbot được phép dùng khi trả lời.
+
 ## Kiểm thử
 
 ```powershell
 # Giao diện và API client — chạy từ thư mục gốc dự án
-node --test js/*.test.js
+node --test frontend/js/*.test.js
 
 # API/backend — chạy trong backend/
 Push-Location backend
@@ -66,11 +79,11 @@ Các kiểm thử MongoDB dùng cơ sở dữ liệu test riêng và có thể x
 
 ## Cấu trúc
 
-- `index.html`, `products.html`, `product.html`, `cart.html`, `account.html`: các trang mua sắm và tài khoản.
-- `admin.html`: giao diện quản trị.
-- `css/`, `js/`, `img/`: giao diện, tương tác và ảnh demo.
+- `frontend/index.html`, `frontend/products.html`, `frontend/product.html`, `frontend/cart.html`, `frontend/account.html`: các trang mua sắm và tài khoản.
+- `frontend/admin.html`: giao diện quản trị.
+- `frontend/`: giao diện, tương tác và ảnh demo.
 - `backend/src/`: API, xác thực, nghiệp vụ đơn hàng và các route.
 - `backend/test/`: kiểm thử backend; `docs/superpowers/`: đặc tả và kế hoạch triển khai.
-- `API_CONTRACT.md`: hợp đồng API.
+- `docs/api/API_CONTRACT.md`: hợp đồng API.
 
 Phí giao hàng theo tỉnh/thành chưa được tích hợp: backend hiện chưa có bảng giá hoặc dịch vụ báo phí. Không dùng số phí demo làm giá vận chuyển thực tế.

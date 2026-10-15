@@ -424,6 +424,8 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 500; letter-spacing: -.02em
   line-height: 1;
 }
 .track span:nth-child(odd) { font-style: italic; }
+@keyframes brand-marquee-single { from { transform: translate3d(100vw, 0, 0); } to { transform: translate3d(-100%, 0, 0); } }
+[data-brand-marquee] .track { animation-name: brand-marquee-single; }
 
 .newsletter { text-align: center; padding: 78px 20px; }
 .newsletter h2 { font-size: clamp(36px, 5vw, 58px); margin: 8px 0; }
@@ -514,6 +516,7 @@ footer p, footer a { color: var(--muted); font-size: 16px; display: block; margi
 .toast {
   left: 50%;
   bottom: 22px;
+  z-index: 1200;
   transform: translate(-50%, 16px);
   background: var(--ink);
   color: #fff;
@@ -829,4 +832,60 @@ html[data-theme="dark"] .page { background: var(--bg); }
 @media (max-width: 640px) {
   .products, .catalog-grid { grid-template-columns: 1fr 1fr; }
   .card .name { font-size: 20px; }
+}
+
+/* Storefront footer: a centered premium frame with evenly balanced information columns. */
+footer.wrap {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  grid-template-columns: minmax(190px, 1.35fr) repeat(3, minmax(140px, 1fr));
+  column-gap: clamp(28px, 5vw, 88px);
+  row-gap: 34px;
+  padding-inline: clamp(24px, 6vw, 112px);
+  padding-top: clamp(48px, 5vw, 72px);
+  padding-bottom: 28px;
+}
+footer.wrap > .logo,
+footer.wrap > div:not(.copyright) { align-self: start; }
+footer.wrap > div:not(.copyright) > b {
+  display: block;
+  margin-bottom: 14px;
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+footer.wrap > div:not(.copyright) p {
+  margin: 7px 0;
+  font-size: 14px;
+  line-height: 1.65;
+}
+footer.wrap > div:not(.copyright) a { transition: color .18s ease; }
+footer.wrap > div:not(.copyright) a:hover { color: var(--rose); }
+footer.wrap .copyright {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  padding-top: 18px;
+  border-top-color: color-mix(in srgb, var(--line) 86%, transparent);
+}
+@media (max-width: 980px) {
+  footer.wrap {
+    width: 100%;
+    max-width: none;
+    margin-inline: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 28px;
+    padding-inline: 28px;
+  }
+}
+@media (max-width: 640px) {
+  footer.wrap {
+    width: 100%;
+    grid-template-columns: 1fr;
+    row-gap: 22px;
+    padding-inline: 22px;
+    padding-top: 44px;
+  }
 }

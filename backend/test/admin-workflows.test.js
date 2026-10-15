@@ -48,7 +48,7 @@ before(async () => {
     { _id: shippedOrderId, orderCode: "MB-SHIPPED", userId: users[1]._id, storeId, orderStatus: "shipped", finalAmount: 75000, items: [{ productId, variantId, productName: "Admin Product", quantity: 1, unitPrice: 75000, lineTotal: 75000 }], createdAt: new Date("2025-01-01T12:00:00Z") },
     { _id: cancelledOrderId, orderCode: "MB-CANCELLED", userId: users[1]._id, storeId, orderStatus: "cancelled", finalAmount: 999999, items: [{ productId, variantId, productName: "Admin Product", quantity: 99, unitPrice: 9999 }], createdAt: now }
   ]);
-  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) } });
+  app = createApp({ db, config: { jwtSecret: "test-secret", frontendRoot: new URL("../../frontend/", import.meta.url) } });
   warehouseAgent = request.agent(app);
   salesAgent = request.agent(app);
   managerAgent = request.agent(app);
@@ -113,7 +113,7 @@ function dbWithInjectedInventoryLogFailure({ acknowledgementLost }) {
 async function createManagerAgent(testDb) {
   const agent = request.agent(createApp({
     db: testDb,
-    config: { jwtSecret: "test-secret", frontendRoot: new URL("../../", import.meta.url) }
+    config: { jwtSecret: "test-secret", frontendRoot: new URL("../../frontend/", import.meta.url) }
   }));
   const login = await agent.post("/api/auth/login").send({ email: "manager-admin@test.local", password: "Demo@123" });
   assert.equal(login.status, 200);
