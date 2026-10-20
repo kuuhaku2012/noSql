@@ -142,7 +142,7 @@ export function authRouter({ db, config, authEmailCodes }) {
     validateBody({ email: { required: true, type: "string" }, password: { required: true, type: "string" } }, req.body);
     const user = await users.findOne({ email: req.body.email.trim().toLowerCase(), isActive: true });
     if (!user || !(await bcrypt.compare(req.body.password, user.passwordHash))) {
-      throw new HttpError(401, "AUTH_INVALID", "Email or password is incorrect");
+      throw new HttpError(401, "AUTH_CREDENTIALS_INVALID", "Email or password is incorrect");
     }
     setSessionCookie(res, user, config);
     res.json({ data: publicUser(user) });

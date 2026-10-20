@@ -71,6 +71,7 @@
     const localizedErrors = {
       AUTH_REQUIRED: "Vui lòng đăng nhập để tiếp tục.",
       AUTH_INVALID: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+      AUTH_CREDENTIALS_INVALID: "Email hoặc mật khẩu không đúng.",
       CODE_INVALID: "Mã xác minh không hợp lệ hoặc đã hết hạn.",
       INVALID_PROMOTION_PRICE: "Giá khuyến mãi phải thấp hơn giá bán hiện tại của tất cả sản phẩm đã chọn.",
       ORDER_NOT_CANCELLABLE: "Đơn hàng chỉ có thể hủy trước khi chuyển sang trạng thái đang giao.",
