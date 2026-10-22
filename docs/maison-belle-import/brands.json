@@ -1,0 +1,62 @@
+[
+  {
+    "name": "COCOON",
+    "code": "COCOON",
+    "slug": "cocoon",
+    "origin": ""
+  },
+  {
+    "name": "DOVE",
+    "code": "DOVE",
+    "slug": "dove",
+    "origin": ""
+  },
+  {
+    "name": "PURITÉ DE PROVENCE",
+    "code": "PURITE-DE-PROVENCE",
+    "slug": "purite-de-provence",
+    "origin": ""
+  },
+  {
+    "name": "NIVEA",
+    "code": "NIVEA",
+    "slug": "nivea",
+    "origin": ""
+  },
+  {
+    "name": "OUHOE",
+    "code": "OUHOE",
+    "slug": "ouhoe",
+    "origin": ""
+  },
+  {
+    "name": "CERAVE",
+    "code": "CERAVE",
+    "slug": "cerave",
+    "origin": ""
+  },
+  {
+    "name": "LA ROCHE-POSAY",
+    "code": "LA-ROCHE-POSAY",
+    "slug": "la-roche-posay",
+    "origin": ""
+  },
+  {
+    "name": "DEAR KLAIRS",
+    "code": "DEAR-KLAIRS",
+    "slug": "dear-klairs",
+    "origin": ""
+  },
+  {
+    "name": "COSRX",
+    "code": "COSRX",
+    "slug": "cosrx",
+    "origin": ""
+  },
+  {
+    "name": "THE ORDINARY",
+    "code": "THE-ORDINARY",
+    "slug": "the-ordinary",
+    "origin": ""
+  }
+]

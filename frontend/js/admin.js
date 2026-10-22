@@ -346,7 +346,7 @@
     return '<label class="field image-upload"><span>' + label + '</span><input type="file" name="image" accept="image/*" data-image-input><small data-image-name>' + (currentUrl ? "Giữ ảnh hiện tại nếu không chọn tệp mới." : "PNG, JPG hoặc WEBP · tối đa 700KB") + '</small>' + preview + '</label>';
   }
   function importField(scope, label = "Nhập từ CSV hoặc JSON") {
-    const hints = { products: "Tệp CSV hoặc JSON · tên sản phẩm, thương hiệu, danh mục, giá bán lẻ · mã sản phẩm tùy chọn (tự tạo nếu thiếu) · tối đa 2MB", inventory: "Tệp CSV hoặc JSON · cửa hàng, mã hoặc tên sản phẩm, số lượng, đơn giá nhập · tối đa 2MB", categories: "Tệp CSV hoặc JSON · tên, đường dẫn, mô tả · tối đa 2MB", brands: "Tệp CSV hoặc JSON · tên, mã, đường dẫn, xuất xứ · tối đa 2MB", "shipping-rates": "Tệp CSV hoặc JSON · tỉnh / thành phố, phí giao hàng, mã khu vực tùy chọn · tối đa 2MB" };
+    const hints = { products: "Tệp CSV hoặc JSON · tên, thương hiệu, danh mục, giá, SKU, mô tả, thành phần, hướng dẫn và đường dẫn ảnh · tối đa 2MB", inventory: "Tệp CSV hoặc JSON · cửa hàng, mã hoặc tên sản phẩm, số lượng, đơn giá nhập · tối đa 2MB", categories: "Tệp CSV hoặc JSON · tên, đường dẫn, mô tả · tối đa 2MB", brands: "Tệp CSV hoặc JSON · tên, mã, đường dẫn, xuất xứ · tối đa 2MB", "shipping-rates": "Tệp CSV hoặc JSON · tỉnh / thành phố, phí giao hàng, mã khu vực tùy chọn · tối đa 2MB" };
     return `<div class="field file-upload admin-create-wide admin-import-field" data-import-scope="${esc(scope)}"><span>${esc(label)}</span><input type="file" name="${esc(scope)}ImportFile" accept=".csv,.json,text/csv,application/json" data-import-file="${esc(scope)}"><small data-import-name>${hints[scope] || "CSV/JSON · mỗi dòng là một bản ghi · tối đa 2MB"}</small><div class="admin-import-actions"><button class="outline" type="button" data-admin-import="${esc(scope)}">Nhập dữ liệu</button><p class="form-message" role="status" data-import-message></p></div></div>`;
   }
   function importBlock(scope, title, description) {
@@ -425,9 +425,9 @@
     return value;
   }
   function findImportReference(items, value) {
-    const wanted = String(value || "").trim().toLowerCase();
+    const wanted = normalizeImportKey(value);
     if (!wanted) return null;
-    return items.find((item) => [item.id, item._id, item.name, item.slug, item.code].filter(Boolean).some((candidate) => String(candidate).trim().toLowerCase() === wanted)) || null;
+    return items.find((item) => [item.id, item._id, item.name, item.slug, item.code].filter(Boolean).some((candidate) => normalizeImportKey(candidate) === wanted)) || null;
   }
   function selectField(label, name, options, required = true) {
     return `<label class="field">${label}<select name="${name}" ${required ? "required" : ""}>${options}</select></label>`;
@@ -1286,6 +1286,8 @@
                 name, slug: importText(row, ["slug", "duongDan"], "đường dẫn", line, { required: false }) || productSlug(name),
                 brandId: brand.id || brand._id, categoryId: category.id || category._id,
                 description: importText(row, ["description", "moTa"], "mô tả", line, { required: false }),
+                ingredients: importText(row, ["ingredients", "thanhPhan", "thanhPhanChinh"], "thành phần", line, { required: false }),
+                howToUse: importText(row, ["howToUse", "huongDanSuDung", "cachDung"], "hướng dẫn sử dụng", line, { required: false }),
                 variants: [{ sku, volume: importText(row, ["volume", "size", "dungTich", "phanLoai"], "dung tích/phân loại", line, { required: false }), originalPrice, retailPrice, ...(importText(row, ["imageUrl", "image", "anh"], "ảnh", line, { required: false }) ? { imageUrl: importText(row, ["imageUrl", "image", "anh"], "ảnh", line, { required: false }) } : {}) }]
               });
               success += 1;

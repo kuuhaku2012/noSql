@@ -1,0 +1,27 @@
+[
+  {
+    "name": "body",
+    "slug": "body",
+    "description": "Sản phẩm nhóm body."
+  },
+  {
+    "name": "sunscreen",
+    "slug": "sunscreen",
+    "description": "Sản phẩm nhóm sunscreen."
+  },
+  {
+    "name": "cream",
+    "slug": "cream",
+    "description": "Sản phẩm nhóm cream."
+  },
+  {
+    "name": "essence",
+    "slug": "essence",
+    "description": "Sản phẩm nhóm essence."
+  },
+  {
+    "name": "serum",
+    "slug": "serum",
+    "description": "Sản phẩm nhóm serum."
+  }
+]
