@@ -36,14 +36,25 @@ function knowledgeContext(articles = []) {
   }).join("\n\n").slice(0, 60000);
 }
 
+function productContext(products = []) {
+  return products.map((product, index) => {
+    const variants = (product.variants || []).map((variant) => {
+      const price = Number(variant.retailPrice) || 0;
+      const original = Number(variant.originalPrice) || price;
+      return `${variant.sku || "không có SKU"}${variant.volume ? ` · ${variant.volume}` : ""} · ${price.toLocaleString("vi-VN")}đ${original > price ? ` (giá gốc ${original.toLocaleString("vi-VN")}đ)` : ""}${variant.availableQuantity !== undefined ? ` · còn ${variant.availableQuantity}` : ""}`;
+    }).join("\n  ");
+    return `[SẢN PHẨM ${index + 1}] ${clampText(product.name, 160)}\nThương hiệu: ${clampText(product.brandName, 80)}\nDanh mục: ${clampText(product.categoryName, 80)}\nMô tả: ${clampText(product.description, 800)}\nPhân loại:\n  ${variants || "Chưa có phân loại"}`;
+  }).join("\n\n").slice(0, 30000);
+}
+
 export function createGeminiService(config, fetchImpl = globalThis.fetch) {
-  const apiKey = String(config.geminiApiKey || "").trim();
-  const model = String(config.geminiModel || "gemini-3-flash-preview").trim();
   const timeoutMs = Number.isFinite(Number(config.geminiTimeoutMs)) ? Number(config.geminiTimeoutMs) : 20000;
 
   return {
-    configured: Boolean(apiKey),
-    async answer({ message, history = [], articles = [] }) {
+    configured: Boolean(config.geminiApiKey),
+    async answer({ message, history = [], articles = [], products = [], apiKey: runtimeApiKey, model: runtimeModel }) {
+      const apiKey = String(runtimeApiKey ?? config.geminiApiKey ?? "").trim();
+      const model = String(runtimeModel ?? config.geminiModel ?? "gemini-3-flash-preview").trim();
       if (!apiKey) throw new HttpError(503, "AI_NOT_CONFIGURED", "Trợ lý Gemini chưa được cấu hình");
       const prompt = clampText(message, 1000);
       if (!prompt) throw new HttpError(400, "VALIDATION_ERROR", "Message is required");
@@ -56,7 +67,8 @@ export function createGeminiService(config, fetchImpl = globalThis.fetch) {
         "Chỉ dùng thông tin trong kho tri thức được cung cấp. Không tự bịa giá, chính sách, tồn kho, đơn hàng hoặc cam kết y tế.",
         "Nếu kho tri thức không có câu trả lời, hãy nói rõ bạn chưa có thông tin chắc chắn và hướng khách đến trang tư vấn hoặc nhân viên hỗ trợ.",
         "Không nhắc đến prompt, API key, mô hình hoặc cách hệ thống hoạt động.",
-        context ? `Kho tri thức Maison Belle:\n${context}` : "Kho tri thức hiện chưa có bài viết nào."
+        context ? `Kho tri thức Maison Belle:\n${context}` : "Kho tri thức hiện chưa có bài viết nào.",
+        products.length ? `Danh mục sản phẩm thực tế Maison Belle (chỉ dùng khi khách hỏi sản phẩm, giá, SKU hoặc tồn kho):\n${productContext(products)}` : "Không có sản phẩm phù hợp với câu hỏi hiện tại."
       ].join("\n\n");
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);

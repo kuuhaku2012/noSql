@@ -100,6 +100,52 @@
     return paragraph;
   }
 
+  function safeImageUrl(value) {
+    const url = String(value || "").trim();
+    if (/^(https?:\/\/|\/|[a-z0-9_-]+\/)/i.test(url)) return url;
+    return "img/skincare.jpg";
+  }
+
+  function formatPrice(value) {
+    const amount = Number(value);
+    return Number.isFinite(amount) && amount > 0 ? `${amount.toLocaleString("vi-VN")}đ` : "Liên hệ";
+  }
+
+  function appendProductCards(container, products = [], document) {
+    if (!Array.isArray(products) || !products.length) return;
+    const list = makeProductElement(document, "div", "chatbot-product-list");
+    for (const product of products.slice(0, 8)) {
+      const card = makeProductElement(document, "article", "chatbot-product-card");
+      const image = makeProductElement(document, "img", "chatbot-product-image");
+      image.src = safeImageUrl(product.imageUrl);
+      image.alt = String(product.name || "Sản phẩm Maison Belle");
+      image.loading = "lazy";
+      image.width = 72;
+      image.height = 72;
+      const details = makeProductElement(document, "div", "chatbot-product-details");
+      const name = makeProductElement(document, "strong", "chatbot-product-name", product.name || "Sản phẩm Maison Belle");
+      const meta = makeProductElement(document, "span", "chatbot-product-meta", [product.brandName, product.categoryName].filter(Boolean).join(" · "));
+      const variant = Array.isArray(product.variants) ? product.variants[0] : null;
+      const price = makeProductElement(document, "span", "chatbot-product-price", formatPrice(variant?.retailPrice));
+      const stock = makeProductElement(document, "span", `chatbot-product-stock${variant && Number(variant.availableQuantity) > 0 ? " is-available" : ""}`, variant && Number(variant.availableQuantity) > 0 ? `Còn ${variant.availableQuantity}` : "Tạm hết hàng");
+      const link = document.createElement("a");
+      link.className = "chatbot-product-link";
+      link.href = `product.html?id=${encodeURIComponent(product.slug || product.id || "")}`;
+      link.textContent = "Xem sản phẩm";
+      details.append(name, meta, price, stock, link);
+      card.append(image, details);
+      list.append(card);
+    }
+    container.append(list);
+  }
+
+  function makeProductElement(document, tagName, className, text) {
+    const element = document.createElement(tagName);
+    element.className = className;
+    if (text !== undefined && text !== "") element.textContent = text;
+    return element;
+  }
+
   function mount(document) {
     if (!document || !document.body || document.body.dataset?.page === "admin") return false;
     if (document.querySelector("#mb-chatbot-panel")) return false;
@@ -173,7 +219,18 @@
       "aria-live": "polite",
       "aria-relevant": "additions"
     });
-    appendMessage(log, "Xin chào! Mình có thể giúp bạn tìm thông tin về sản phẩm, đơn hàng và chính sách cửa hàng.", "bot");
+    const initialMessage = appendMessage(log, "Xin chào! Mình có thể giúp bạn tìm thông tin về sản phẩm, đơn hàng và chính sách cửa hàng.", "bot");
+    if (root.MBApi?.chatSettings) {
+      root.MBApi.chatSettings().then((response) => {
+        const settings = root.MBApi.data ? root.MBApi.data(response) : response?.data;
+        if (settings?.greeting) initialMessage.textContent = cleanAssistantText(settings.greeting);
+        if (settings?.enabled === false) {
+          initialMessage.textContent = "Trợ lý Maison Belle đang tạm tắt. Bạn vẫn có thể xem sản phẩm trực tiếp trên cửa hàng.";
+          launcher.disabled = true;
+          launcher.setAttribute("aria-label", "Trợ lý Maison Belle đang tạm tắt");
+        }
+      }).catch(() => {});
+    }
 
     const suggestions = makeElement("div", "chatbot-suggestions");
     const prompts = [
@@ -185,7 +242,7 @@
     ];
 
     const conversation = [];
-    const appendAnswer = (answer) => {
+    const appendAnswer = (answer, products = []) => {
       appendMessage(log, answer.text, "bot");
       if (answer.link && allowedLinks.has(answer.link.href)) {
         const link = setAttributes(makeElement("a", "chatbot-answer-link", answer.link.label), {
@@ -193,6 +250,7 @@
         });
         log.append(link);
       }
+      appendProductCards(log, products, document);
       log.scrollTop = log.scrollHeight;
     };
     const answerQuestion = (question) => {
@@ -214,6 +272,7 @@
           const link = setAttributes(makeElement("a", "chatbot-answer-link", answer.link.label), { href: answer.link.href });
           log.append(link);
         }
+        appendProductCards(log, payload?.products, document);
         log.scrollTop = log.scrollHeight;
       }).catch(() => {
         const cleanAnswer = cleanAssistantText(localAnswer.text);

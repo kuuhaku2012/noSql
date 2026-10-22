@@ -14,6 +14,8 @@ export function errorHandler(error, req, res, _next) {
       ? new HttpError(409, "DUPLICATE_RESOURCE", "A unique value is already in use")
       : error?.type === "entity.parse.failed"
         ? new HttpError(400, "INVALID_JSON", "Request body must be valid JSON")
+        : error?.type === "entity.too.large"
+          ? new HttpError(413, "REQUEST_TOO_LARGE", "Request body exceeds the allowed size")
         : new HttpError(500, "INTERNAL_ERROR", "An unexpected server error occurred");
   if (normalized.status >= 500) console.error(error);
   res.status(normalized.status).json({

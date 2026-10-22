@@ -701,6 +701,39 @@ html[data-theme="dark"] .consultation-form .field input, html[data-theme="dark"]
   .chatbot-launcher::before, .chatbot-launcher .chatbot-avatar, .chatbot-launcher-status { animation: none !important; }
 }
 
+.chatbot-product-list {
+  display: grid;
+  width: min(100%, 29rem);
+  gap: 8px;
+  margin: 0 0 3px 2px;
+}
+.chatbot-product-card {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--rose) 23%, var(--line));
+  border-radius: 14px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--rose) 6%);
+}
+.chatbot-product-image {
+  width: 72px;
+  height: 72px;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--paper);
+}
+.chatbot-product-details { display: grid; min-width: 0; align-content: start; gap: 2px; }
+.chatbot-product-name { overflow: hidden; color: var(--ink); font-size: 13px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.chatbot-product-meta { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.chatbot-product-price { color: var(--rose); font-size: 12px; font-weight: 800; }
+.chatbot-product-stock { color: var(--muted); font-size: 10px; }
+.chatbot-product-stock.is-available { color: #2f7a4d; }
+.chatbot-product-link { width: fit-content; color: var(--rose); font-size: 11px; font-weight: 800; text-underline-offset: 3px; }
+.chatbot-product-link:focus-visible { outline: 2px solid var(--gold-text); outline-offset: 2px; border-radius: 4px; }
+
 /* Maison Belle assistant refinement: no clipped chips, clearer message hierarchy, calmer focus. */
 .chatbot-launcher,
 .chatbot-panel,

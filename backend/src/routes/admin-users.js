@@ -44,11 +44,18 @@ export function adminUsersRouter({ db }) {
   router.get("/", async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
     const filter = {};
+    if (req.query.staff === "true") filter.role = { $in: ["manager", "sales", "warehouse"] };
     if (req.query.role) {
       validateRole(req.query.role);
+      if (req.query.staff === "true" && req.query.role === "customer") {
+        throw new HttpError(400, "VALIDATION_ERROR", "customer is not a staff role");
+      }
       filter.role = req.query.role;
     }
-    if (req.query.q?.trim()) filter.$or = [{ email: { $regex: req.query.q.trim(), $options: "i" } }, { fullName: { $regex: req.query.q.trim(), $options: "i" } }];
+    if (typeof req.query.q === "string" && req.query.q.trim()) {
+      const query = req.query.q.trim().slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      filter.$or = [{ email: { $regex: query, $options: "i" } }, { fullName: { $regex: query, $options: "i" } }];
+    }
     const [items, total] = await Promise.all([
       users.find(filter).sort({ fullName: 1, email: 1 }).skip(skip).limit(limit).toArray(),
       users.countDocuments(filter)
@@ -72,7 +79,7 @@ export function adminUsersRouter({ db }) {
     const user = {
       _id: new ObjectId(), email, fullName: req.body.fullName.trim(), role: req.body.role,
       roleId: null, phone: req.body.phone?.trim() || undefined, skinType: req.body.skinType?.trim() || undefined,
-      passwordHash: await bcrypt.hash(req.body.password, 10), isActive: req.body.isActive !== false,
+      passwordHash: await bcrypt.hash(req.body.password, 10), isActive: req.body.isActive !== false, authVersion: 0,
       isDemo: false, createdAt: now, updatedAt: now
     };
     await users.insertOne(user);
@@ -106,19 +113,36 @@ export function adminUsersRouter({ db }) {
     }
     if (req.body.isActive !== undefined) {
       if (typeof req.body.isActive !== "boolean") throw new HttpError(400, "VALIDATION_ERROR", "isActive must be boolean");
-      if (String(id) === String(current._id) && !req.body.isActive) throw new HttpError(409, "SELF_DEACTIVATION", "You cannot deactivate your own account");
       update.isActive = req.body.isActive;
+    }
+    const nextRole = update.role ?? current.role;
+    const nextActive = update.isActive ?? current.isActive;
+    const losingManagerAccess = current.role === "manager" && current.isActive === true && (nextRole !== "manager" || nextActive === false);
+    if (String(id) === String(req.user._id) && (nextRole !== "manager" || nextActive === false)) {
+      throw new HttpError(409, "SELF_PERMISSION_CHANGE", "You cannot remove your own manager access");
+    }
+    if (losingManagerAccess && await users.countDocuments({ role: "manager", isActive: true }) <= 1) {
+      throw new HttpError(409, "LAST_MANAGER", "At least one active manager is required");
     }
     const operation = { $set: update };
     if (Object.keys(unset).length) operation.$unset = unset;
+    if (req.body.password !== undefined || (update.role !== undefined && update.role !== current.role) || (update.isActive !== undefined && update.isActive !== current.isActive)) {
+      operation.$inc = { authVersion: 1 };
+    }
     const saved = await users.findOneAndUpdate({ _id: id }, operation, { returnDocument: "after" });
+    if (!saved) throw notFound("User not found");
     res.json({ data: serialize(saved) });
   });
 
   router.delete("/:id", async (req, res) => {
     const id = toReference(req.params.id, "id");
     if (String(id) === String(req.user._id)) throw new HttpError(409, "SELF_DEACTIVATION", "You cannot deactivate your own account");
-    const saved = await users.findOneAndUpdate({ _id: id }, { $set: { isActive: false, updatedAt: new Date() } }, { returnDocument: "after" });
+    const target = await users.findOne({ _id: id });
+    if (!target) throw notFound("User not found");
+    if (target.role === "manager" && target.isActive === true && await users.countDocuments({ role: "manager", isActive: true }) <= 1) {
+      throw new HttpError(409, "LAST_MANAGER", "At least one active manager is required");
+    }
+    const saved = await users.findOneAndUpdate({ _id: id }, { $set: { isActive: false, updatedAt: new Date() }, $inc: { authVersion: 1 } }, { returnDocument: "after" });
     if (!saved) throw notFound("User not found");
     res.json({ data: serialize(saved) });
   });

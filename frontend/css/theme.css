@@ -706,7 +706,6 @@ footer { color: var(--muted); }
   width: auto;
   min-width: 150px;
 }
-
 html[data-theme="dark"] .topline { background: linear-gradient(90deg, #171312, #3c2829 52%, #171312); }
 html[data-theme="dark"] .warranty-hero,
 html[data-theme="dark"] .about-hero,
@@ -932,6 +931,7 @@ html[data-theme="dark"] .admin .tag.status-warning { border-color: #6a522e; back
 html[data-theme="dark"] .admin .tag.status-info { border-color: #3a5370; background: #25354a; color: #c6defd; }
 html[data-theme="dark"] .admin .tag.status-danger { border-color: #704043; background: #482729; color: #ffc3c3; }
 html[data-theme="dark"] .admin .tag.status-neutral { border-color: #514239; background: #3a302b; color: #e8ddd4; }
+html[data-theme="dark"] .admin .admin-order-avatar { border-color: #6b5542; background: #45382d; color: #f0d7b8; }
 .admin .demo-label { display: inline-flex; margin: 3px 0; padding: 3px 7px; border: 1px solid var(--admin-border); border-radius: 999px; background: var(--surface-alt); color: var(--admin-muted); font-size: 9px; font-weight: 700; letter-spacing: .04em; vertical-align: middle; }
 .admin .empty { margin: 0; padding: 22px 18px; border: 1px dashed var(--admin-border); border-radius: 12px; background: var(--surface-alt); color: var(--admin-muted); font-size: 13px; text-align: center; }
 .admin .service { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--admin-border); color: var(--admin-muted); font-size: 12px; line-height: 1.6; }
@@ -1155,11 +1155,30 @@ html[data-theme="dark"] .admin .tag.status-neutral { border-color: #514239; back
 .admin .admin-create-form .field :is(input, select, textarea) { border-radius: 12px; background: var(--input-bg); }
 .admin .admin-create-form .field :is(input, select) { min-height: 48px; }
 .admin .admin-create-form .admin-multi-select { grid-column: 1 / -1; }
+.admin .admin-multi-select-search { position: relative; display: block; }
+.admin .admin-multi-select-search svg { position: absolute; top: 50%; left: 13px; width: 17px; height: 17px; transform: translateY(-50%); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--admin-muted); pointer-events: none; }
+.admin .admin-multi-select-search input { width: 100%; min-height: 44px; padding: 10px 12px 10px 48px; border: 1px solid var(--admin-border); border-radius: 11px; background: var(--input-bg); color: var(--ink); }
+.admin .admin-create-form .admin-multi-select-search input { padding-left: 48px; }
+.admin .admin-multi-select-search input:focus { border-color: color-mix(in srgb, var(--rose) 65%, var(--admin-border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rose) 16%, transparent); outline: none; }
 .admin .admin-create-form .admin-multi-select select[multiple] { min-height: 184px; padding: 8px; }
 .admin .admin-create-form .admin-multi-select option,
 .admin .admin-dialog-form select[multiple] option { padding: 8px 10px; border-radius: 7px; }
 .admin .admin-create-form .admin-multi-select option:checked,
 .admin .admin-dialog-form select[multiple] option:checked { background: color-mix(in srgb, var(--rose) 72%, var(--surface)); color: #fff; }
+.admin .admin-product-search-bar,
+.admin .admin-inventory-search-bar,
+.admin .admin-shipping-search-bar { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
+.admin .admin-table-search { position: relative; display: block; flex: 1 1 340px; min-width: 220px; }
+.admin .admin-table-search svg { position: absolute; top: 50%; left: 14px; width: 17px; height: 17px; transform: translateY(-50%); fill: none; stroke: var(--admin-muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.admin .admin-table-search input { width: 100%; min-height: 44px; padding: 10px 14px 10px 48px; border: 1px solid var(--admin-border); border-radius: 11px; background: var(--input-bg); color: var(--ink); font: 500 13px/1.4 var(--admin-sans); }
+.admin .admin-table-search input:focus { border-color: color-mix(in srgb, var(--rose) 65%, var(--admin-border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rose) 16%, transparent); outline: none; }
+.admin .admin-product-search-count { flex: 0 0 auto; color: var(--admin-muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+@media (max-width: 640px) {
+  .admin .admin-product-search-bar,
+  .admin .admin-inventory-search-bar,
+  .admin .admin-shipping-search-bar { align-items: stretch; flex-direction: column; }
+  .admin .admin-table-search { min-width: 0; }
+}
 .admin .admin-create-form .field textarea { min-height: 88px; resize: vertical; }
 .admin form[data-admin-action="create-product"] textarea[name="description"] { min-height: 140px; }
 .admin .admin-create-form .field small { color: var(--admin-muted); font-size: 11px; font-weight: 500; line-height: 1.45; }
@@ -1335,6 +1354,32 @@ html[data-theme="dark"] .admin .tag.status-neutral { border-color: #514239; back
 .admin .admin-order-detail-action { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 7px; padding: 7px 10px; border-color: var(--admin-border); border-radius: 9px; background: var(--surface-alt); color: var(--ink); font-size: 11px; font-weight: 700; letter-spacing: 0; text-transform: none; white-space: nowrap; }
 .admin .admin-order-detail-action:hover { border-color: var(--rose); background: color-mix(in srgb, var(--rose) 9%, var(--surface)); }
 .admin .admin-order-detail-action svg { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: var(--rose); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.admin .orders-panel .table-wrap { border-radius: 16px; background: color-mix(in srgb, var(--surface) 94%, var(--rose)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035), 0 12px 28px rgba(38, 26, 21, .07); }
+.admin .orders-panel .admin-orders-table { min-width: 920px; table-layout: fixed; }
+.admin .orders-panel .admin-orders-table th:nth-child(1) { width: 27%; }
+.admin .orders-panel .admin-orders-table th:nth-child(2) { width: 21%; }
+.admin .orders-panel .admin-orders-table th:nth-child(3) { width: 15%; }
+.admin .orders-panel .admin-orders-table th:nth-child(4) { width: 15%; }
+.admin .orders-panel .admin-orders-table th:nth-child(5) { width: 22%; }
+.admin .orders-panel .admin-orders-table td { padding: 16px 18px; }
+.admin .orders-panel .admin-orders-table tbody tr { transition: background-color .18s ease; }
+.admin .orders-panel .admin-orders-table tbody tr:hover td { background: color-mix(in srgb, var(--rose) 8%, var(--surface-alt)); }
+.admin .admin-order-code,
+.admin .admin-order-customer { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.admin .admin-order-code > span:last-child { display: grid; min-width: 0; gap: 3px; }
+.admin .admin-order-code strong { overflow: hidden; color: var(--ink); font-size: 12px; font-weight: 800; letter-spacing: .015em; text-overflow: ellipsis; white-space: nowrap; }
+.admin .admin-order-code small { color: var(--admin-muted); font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.admin .admin-order-code-mark { display: inline-grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border: 1px solid color-mix(in srgb, var(--rose) 28%, var(--admin-border)); border-radius: 9px; background: color-mix(in srgb, var(--rose) 11%, var(--surface)); color: var(--rose); font-size: 15px; font-weight: 800; }
+.admin .admin-order-customer { color: var(--ink); font-weight: 700; }
+.admin .admin-order-avatar { display: inline-grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border: 1px solid color-mix(in srgb, var(--gold) 35%, var(--admin-border)); border-radius: 50%; background: color-mix(in srgb, var(--gold) 14%, var(--surface-alt)); color: var(--gold-deep, #8d6a4c); font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+.admin .admin-order-total { color: var(--ink); font-size: 14px; font-weight: 800; white-space: nowrap; }
+.admin .admin-order-status { display: flex; align-items: center; }
+.admin .orders-panel .admin-order-actions { justify-content: flex-end; }
+.admin .orders-panel .admin-record-action { border-color: color-mix(in srgb, var(--rose) 26%, var(--admin-border)); background: color-mix(in srgb, var(--rose) 9%, var(--surface)); }
+.admin .orders-panel .admin-record-action:hover { border-color: var(--rose); background: color-mix(in srgb, var(--rose) 15%, var(--surface)); }
+.admin .orders-panel .admin-order-detail-action { background: transparent; }
+.admin .orders-panel .admin-order-detail-action:hover { background: color-mix(in srgb, var(--rose) 10%, var(--surface)); }
+.admin .admin-muted-note { color: var(--admin-muted); font-size: 13px; }
 
 .admin .appointments-panel .table-wrap table { min-width: 860px; }
 .admin .appointments-panel .table-wrap th:last-child,
@@ -1797,4 +1842,105 @@ html[data-theme="dark"] .admin .textlink:focus-visible {
     width: 100%;
     min-width: 0;
   }
+}
+
+/* Keep desktop navigation and workspace scrolling independent. */
+@media (min-width: 981px) {
+  html:has(body.admin),
+  body.admin {
+    overflow: hidden;
+  }
+  body.admin .admin-layout {
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+  body.admin .sidebar {
+    position: relative;
+    height: 100dvh;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  body.admin .admin-main {
+    height: 100dvh;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}
+
+@media (max-width: 980px) {
+  body.admin {
+    overflow-x: hidden;
+  }
+  body.admin .admin-layout {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+  body.admin .admin-main {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+}
+
+/* Knowledge editing opens in a focused dialog; keep the row action menu compact. */
+.admin .admin-knowledge-actions-menu { width: 208px; }
+.admin .admin-knowledge-edit-trigger { width: 100%; }
+.admin .admin-knowledge-dialog { width: min(620px, calc(100vw - 28px)); }
+.admin .admin-knowledge-dialog .knowledge-edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+.admin .admin-knowledge-dialog .knowledge-upload-field,
+.admin .admin-knowledge-dialog .knowledge-upload-hint,
+.admin .admin-knowledge-dialog .admin-check-field,
+.admin .admin-knowledge-dialog .admin-dialog-actions,
+.admin .admin-knowledge-dialog .form-message { grid-column: 1 / -1; }
+
+@media (max-width: 640px) {
+  .admin .admin-knowledge-dialog { width: min(620px, calc(100vw - 20px)); }
+  .admin .admin-knowledge-dialog .knowledge-edit-form { grid-template-columns: minmax(0, 1fr); }
+  .admin .admin-knowledge-dialog .knowledge-upload-field,
+  .admin .admin-knowledge-dialog .knowledge-upload-hint,
+  .admin .admin-knowledge-dialog .admin-check-field,
+  .admin .admin-knowledge-dialog .admin-dialog-actions,
+  .admin .admin-knowledge-dialog .form-message { grid-column: 1; }
+}
+
+/* Product editor: keep the image column balanced with the two detail columns. */
+@media (min-width: 641px) {
+  .admin .product-edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; column-gap: 16px; row-gap: 14px; }
+  .admin .product-edit-form > .product-edit-heading { grid-column: 1 / -1; grid-row: 1; }
+  .admin .product-edit-form > .image-upload { grid-column: 1 / -1; grid-row: 6; align-self: start; }
+  .admin .product-edit-form > .field:has(> input[name="name"]) { grid-column: 1 / -1; grid-row: 2; align-self: start; }
+  .admin .product-edit-form > .field:has(> input[name="sku"]) { grid-column: 1 / -1; grid-row: 3; align-self: start; }
+  .admin .product-edit-form > .field:has(> input[name="retailPrice"]) { grid-column: 1; grid-row: 4; }
+  .admin .product-edit-form > .field:has(> input[name="originalPrice"]) { grid-column: 2; grid-row: 4; }
+  .admin .product-edit-form > .product-edit-description { grid-column: 1 / -1; grid-row: 5; }
+  .admin .product-edit-form > .product-edit-actions { grid-column: 1 / -1; grid-row: 7; justify-content: center; }
+  .admin .product-edit-form > .form-message { grid-column: 1 / -1; grid-row: 8; text-align: center; }
+  .admin .product-edit-actions :is(.btn, .outline) { width: 180px; min-width: 180px; }
+  .admin .product-edit-form .image-upload-preview { justify-self: center; }
+}
+.admin-chatbot-settings-panel,
+.admin-chatbot-help { overflow: hidden; }
+.admin-chatbot-settings-form { gap: 18px; }
+.admin-chatbot-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.admin-chatbot-wide { grid-column: 1 / -1; }
+.admin-chatbot-options { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--rose) 22%, var(--line)); border-radius: 14px; background: color-mix(in srgb, var(--surface) 92%, var(--rose) 8%); }
+.admin-chatbot-options .admin-inline-check { min-height: 28px; }
+.admin-chatbot-status { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--surface) 94%, var(--gold) 6%); }
+.admin-chatbot-status strong { display: block; color: var(--ink); }
+.admin-chatbot-status p { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.admin-chatbot-status code { color: var(--rose); font-size: .9em; }
+.status-dot { width: 10px; height: 10px; flex: 0 0 10px; margin-top: 5px; border-radius: 50%; background: #c88742; box-shadow: 0 0 0 5px color-mix(in srgb, #c88742 16%, transparent); }
+.status-dot.is-ready { background: #4d9a64; box-shadow: 0 0 0 5px color-mix(in srgb, #4d9a64 16%, transparent); }
+.admin-chatbot-help-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.admin-chatbot-help-grid > div { min-height: 100%; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--surface) 94%, var(--rose) 6%); }
+.admin-chatbot-help-grid strong { color: var(--ink); }
+.admin-chatbot-help-grid p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+@media (max-width: 760px) {
+  .admin-chatbot-settings-grid,
+  .admin-chatbot-help-grid { grid-template-columns: 1fr; }
 }

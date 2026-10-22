@@ -17,7 +17,7 @@
   const encode = (value) => encodeURIComponent(String(value));
 
   function createApi(fetchImpl = (...args) => fetch(...args)) {
-    async function request(path, { method = "GET", body, query, signal } = {}) {
+    async function request(path, { method = "GET", body, rawBody, contentType, responseType, query, signal } = {}) {
       const params = new URLSearchParams();
       Object.entries(query || {}).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== "") params.set(key, value);
@@ -28,8 +28,8 @@
         response = await fetchImpl(url, {
           method,
           credentials: "same-origin",
-          headers: body === undefined ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
-          body: body === undefined ? undefined : JSON.stringify(body),
+          headers: { Accept: "application/json", ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...(rawBody !== undefined ? { "Content-Type": contentType || "application/octet-stream" } : {}) },
+          body: rawBody !== undefined ? rawBody : body === undefined ? undefined : JSON.stringify(body),
           signal
         });
       } catch (error) {
@@ -37,6 +37,7 @@
         throw new ApiError("Không kết nối được máy chủ. Vui lòng thử lại.", { code: "NETWORK_ERROR" });
       }
 
+      if (response.ok && responseType === "blob") return response.blob();
       let payload = null;
       if (response.status !== 204) {
         try { payload = await response.json(); }
@@ -69,6 +70,7 @@
       flashSales: { list: (query) => get("/api/flash-sales", query) },
       products: (query = {}) => get("/api/products", query),
       product: (id) => get(idPath("/api/products", id)),
+      chatSettings: () => get("/api/chat/settings"),
       chat: (body) => send("POST", "/api/chat", body),
       auth: {
         login: (body) => send("POST", "/api/auth/login", body),
@@ -118,6 +120,17 @@
         create: (body) => send("POST", "/api/returns", body)
       },
       admin: {
+        users: {
+          list: (query) => get("/api/admin/users", query),
+          create: (body) => send("POST", "/api/admin/users", body),
+          update: (id, body) => request(idPath("/api/admin/users", id), { method: "PATCH", body }),
+          remove: (id) => request(idPath("/api/admin/users", id), { method: "DELETE" })
+        },
+        backups: {
+          summary: () => get("/api/admin/backups/summary"),
+          download: () => request("/api/admin/backups/download", { responseType: "blob" }),
+          restore: (rawBody) => request("/api/admin/backups/restore", { method: "POST", rawBody, contentType: "application/octet-stream" })
+        },
         shippingRates: {
           list: () => get("/api/admin/shipping-rates"),
           create: (body) => send("POST", "/api/admin/shipping-rates", body),
@@ -176,6 +189,10 @@
           create: (body) => send("POST", "/api/admin/knowledge", body),
           update: (id, body) => request(idPath("/api/admin/knowledge", id), { method: "PATCH", body }),
           remove: (id) => request(idPath("/api/admin/knowledge", id), { method: "DELETE" })
+        },
+        chatbot: {
+          get: () => get("/api/admin/chatbot"),
+          update: (body) => request("/api/admin/chatbot", { method: "PATCH", body })
         }
       }
     };

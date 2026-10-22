@@ -23,6 +23,7 @@ import { adminReportsRouter } from "./routes/admin-reports.js";
 import { catalogRouter } from "./routes/catalog.js";
 import { adminCatalogRouter } from "./routes/admin-catalog.js";
 import { adminUsersRouter } from "./routes/admin-users.js";
+import { adminBackupsRouter } from "./routes/admin-backups.js";
 import { adminFinanceRouter } from "./routes/admin-finance.js";
 import { customersRouter, adminCustomersRouter } from "./routes/customers.js";
 import { promotionsRouter } from "./routes/promotions.js";
@@ -35,6 +36,7 @@ import { flashSalesRouter } from "./routes/flash-sales.js";
 import { shippingRouter } from "./routes/shipping.js";
 import { adminShippingRatesRouter } from "./routes/admin-shipping-rates.js";
 import { adminKnowledgeRouter, chatRouter } from "./routes/knowledge.js";
+import { adminChatbotRouter } from "./routes/admin-chatbot.js";
 
 function toPath(value) {
   return value instanceof URL ? fileURLToPath(value) : value;
@@ -85,6 +87,7 @@ export function createApp({ db = null, config = getConfig(), mailer: injectedMai
     api.use("/admin/shipping-rates", adminShippingRatesRouter({ db }));
     api.use("/admin/catalog", adminCatalogRouter({ db }));
     api.use("/admin/users", adminUsersRouter({ db }));
+    api.use("/admin/backups", adminBackupsRouter({ db }));
     api.use("/admin/customers", adminCustomersRouter({ db }));
     api.use("/admin", adminInventoryRouter({ db }));
     api.use("/admin/promotions", adminPromotionsRouter({ db }));
@@ -94,6 +97,7 @@ export function createApp({ db = null, config = getConfig(), mailer: injectedMai
     api.use("/admin/reports", adminReportsRouter({ db }));
     api.use("/admin", adminFinanceRouter({ db }));
     api.use("/admin/knowledge", adminKnowledgeRouter({ db }));
+    api.use("/admin/chatbot", adminChatbotRouter({ db, config }));
   }
 
   app.use("/api", api);

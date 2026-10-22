@@ -32,6 +32,7 @@ export function collections(db) {
     memberships: db.collection("memberships"),
     pointHistories: db.collection("point_histories"),
     userAddresses: db.collection("user_addresses"),
-    knowledgeArticles: db.collection("knowledge_articles")
+    knowledgeArticles: db.collection("knowledge_articles"),
+    chatbotSettings: db.collection("chatbot_settings")
   };
 }

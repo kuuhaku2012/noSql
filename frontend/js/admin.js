@@ -5,7 +5,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (root) {
   const esc = (value) => root.MB?.escape ? root.MB.escape(value) : String(value ?? "");
   const roleViews = {
-    manager: ["dashboard", "reports", "products", "orders", "customers", "appointments", "promotions", "inventory", "deliveries", "returns", "categories", "brands", "store-settings", "master-data", "knowledge"],
+    manager: ["dashboard", "reports", "products", "orders", "customers", "appointments", "promotions", "inventory", "deliveries", "returns", "categories", "brands", "store-settings", "master-data", "knowledge", "chatbot", "users", "backups"],
     sales: ["products", "orders", "customers", "appointments", "promotions", "deliveries", "returns"],
     warehouse: ["products", "inventory", "deliveries"]
   };
@@ -13,7 +13,7 @@
     dashboard: "Tổng quan", reports: "Báo cáo", products: "Sản phẩm", orders: "Đơn hàng & hóa đơn", customers: "Khách hàng & hội viên",
     appointments: "Tư vấn & lịch hẹn", promotions: "Khuyến mãi & mã giảm giá", inventory: "Tồn kho & nhập hàng",
     deliveries: "Giao hàng", returns: "Đổi trả", categories: "Danh mục sản phẩm", brands: "Thương hiệu",
-    "store-settings": "Cửa hàng & phí giao", "master-data": "Danh mục & thương hiệu", knowledge: "Kho tri thức"
+    "store-settings": "Cửa hàng & phí giao", "master-data": "Danh mục & thương hiệu", knowledge: "Kho tri thức", chatbot: "Quản lý chatbot", users: "Nhân sự & phân quyền", backups: "Sao lưu & khôi phục"
   };
   const descriptions = {
     dashboard: "Theo dõi nhanh tình hình vận hành cửa hàng trong một nơi.",
@@ -30,7 +30,10 @@
     brands: "Quản lý nhãn hàng, mã thương hiệu và xuất xứ.",
     "store-settings": "Quản lý điểm bán và mức phí giao hàng đang áp dụng.",
     "master-data": "Quản lý danh mục, thương hiệu và cửa hàng.",
-    knowledge: "Quản lý nội dung để Gemini trả lời khách hàng đúng theo chính sách Maison Belle."
+    knowledge: "Quản lý nội dung để Gemini trả lời khách hàng đúng theo chính sách Maison Belle.",
+    chatbot: "Cấu hình trợ lý Gemini, khóa API và cách hiển thị thông tin sản phẩm cho khách hàng.",
+    users: "Quản lý tài khoản nhân viên, quyền truy cập và trạng thái làm việc.",
+    backups: "Tải bản sao lưu MongoDB và khôi phục dữ liệu cửa hàng từ tệp đã lưu."
   };
   const headerActions = {
     products: { label: "Thêm sản phẩm", action: "create-product", roles: ["sales", "manager"] },
@@ -42,7 +45,8 @@
     brands: { label: "Thêm thương hiệu", action: "create-brand", roles: ["manager"] },
     "store-settings": { label: "Thêm phí giao", action: "create-shipping-rate", roles: ["manager"] },
     "master-data": { label: "Thêm danh mục", action: "create-category", roles: ["manager"] },
-    knowledge: { label: "Thêm bài viết", action: "create-knowledge", roles: ["manager"] }
+    knowledge: { label: "Thêm bài viết", action: "create-knowledge", roles: ["manager"] },
+    users: { label: "Thêm nhân sự", action: "create-user", roles: ["manager"] }
   };
   const statusLabels = {
     pending: "Chờ xác nhận", requested: "Chờ tiếp nhận", confirmed: "Đã xác nhận",
@@ -281,8 +285,9 @@
   const demo = () => "";
   const money = (value) => root.MB.money(value);
 
-  function table(headers, body) {
-    return `<div class="table-wrap"><table><thead><tr>${headers.map((item) => `<th>${esc(item)}</th>`).join("")}</tr></thead><tbody>${body || `<tr><td colspan="${headers.length}">Không có bản ghi.</td></tr>`}</tbody></table></div>`;
+  function table(headers, body, className = "") {
+    const tableClass = className ? ` class="${esc(className)}"` : "";
+    return `<div class="table-wrap"><table${tableClass}><thead><tr>${headers.map((item) => `<th>${esc(item)}</th>`).join("")}</tr></thead><tbody>${body || `<tr><td colspan="${headers.length}">Không có bản ghi.</td></tr>`}</tbody></table></div>`;
   }
   function tableSection(eyebrow, title, count, content) {
     return `<section class="admin-table-section"><div class="section-head"><div><span class="eyebrow">${eyebrow}</span><h3>${title}</h3></div><span>${count} bản ghi</span></div>${content}</section>`;
@@ -427,8 +432,13 @@
   function selectField(label, name, options, required = true) {
     return `<label class="field">${label}<select name="${name}" ${required ? "required" : ""}>${options}</select></label>`;
   }
+  function normalizeSearchText(value) {
+    return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\u0111\u0110]/g, "d").toLowerCase().trim();
+  }
   function multiSelectField(label, name, options, hint = "") {
-    return `<label class="field admin-multi-select"><span>${label}</span><select name="${name}" multiple size="8" required>${options}</select>${hint ? `<small>${hint}</small>` : ""}</label>`;
+    const searchable = name === "variantIds";
+    const search = searchable ? `<span class="admin-multi-select-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg><input type="search" data-variant-search placeholder="Tìm theo tên, mã SKU hoặc phân loại" autocomplete="off" aria-label="Tìm sản phẩm hoặc phân loại"></span>` : "";
+    return `<label class="field admin-multi-select"><span>${label}</span>${search}<select name="${name}" multiple size="8" required>${options}</select>${hint ? `<small>${hint}</small>` : ""}</label>`;
   }
   function shippingRateFields(rate = {}) {
     return `${formField("Tỉnh / thành phố", "regionName", "text", true, `value="${esc(rate.regionName || "")}" placeholder="Ví dụ: Thành phố Hồ Chí Minh"`)}
@@ -489,6 +499,7 @@
     let view = defaultView("manager", requestedView);
     if (requestedView === "reports") view = "reports";
     let currentRole = "";
+    let currentUserId = "";
     const title = root.document.querySelector("#view-title");
     const description = root.document.querySelector("#view-description");
     const breadcrumbRoot = root.document.querySelector("#admin-breadcrumb-root");
@@ -700,7 +711,7 @@
           source.insertAdjacentHTML("afterend", `<form data-admin-action="${action}" ${attrs}><input type="hidden" name="isActive" value="false"><button class="outline danger" type="submit">${label}</button><p class="form-message" role="status"></p></form>`);
         });
       };
-      add('form[data-admin-action="toggle-product"]', "remove-product", (form) => ({ id: form.dataset.id }), "Ẩn sản phẩm");
+      add('form[data-admin-action="toggle-product"]', "remove-product", (form) => ({ id: form.dataset.id }), "Xóa sản phẩm");
       add('form[data-admin-action="promotion-status"]', "remove-promotion", (form) => ({ id: form.dataset.id }), "Xóa");
       add('form[data-admin-action="voucher-status"]', "remove-voucher", (form) => ({ id: form.dataset.id }), "Xóa");
       add('form[data-admin-action="catalog-status"]', "remove-catalog", (form) => ({ kind: form.dataset.kind, id: form.dataset.id }), "Xóa");
@@ -720,7 +731,7 @@
       syncHeaderAction();
       try {
         await render(await fetcher());
-        if (["products", "orders", "customers", "appointments", "inventory", "promotions", "deliveries", "returns", "categories", "brands", "store-settings", "master-data", "knowledge"].includes(view)) groupAdminWorkspace(host);
+        if (["products", "orders", "customers", "appointments", "inventory", "promotions", "deliveries", "returns", "categories", "brands", "store-settings", "master-data", "knowledge", "chatbot"].includes(view)) groupAdminWorkspace(host);
         decorateCrudView();
         syncHeaderAction();
       }
@@ -744,6 +755,23 @@
       if (view === "brands") return masterDataView("brands");
       if (view === "store-settings") return masterDataView("stores");
       if (view === "knowledge") return knowledgeView();
+      if (view === "chatbot") return chatbotView();
+      if (view === "users" && root.MBAdminUsers) {
+        return root.MBAdminUsers.mount(host, {
+          api: root.MBApi.admin.users,
+          currentUserId,
+          escape: esc,
+          toast: (...args) => root.MB.toast(...args),
+          onRendered: syncHeaderAction
+        });
+      }
+      if (view === "backups" && root.MBAdminBackups) {
+        return root.MBAdminBackups.mount(host, {
+          api: root.MBApi.admin.backups,
+          escape: esc,
+          toast: (...args) => root.MB.toast(...args)
+        });
+      }
       state(host, "notFound", "Mục vận hành không tồn tại.");
     }
 
@@ -818,7 +846,7 @@
         const body = products.map((item) => {
           const id = item.id || item._id, variant = item.variants?.[0] || {};
           const imageUrl = variant.imageUrl || item.imageUrl || item.image || "";
-          const edit = canWrite ? `<details class="product-edit"><summary>Chỉnh sửa</summary><form data-admin-action="update-product" data-id="${esc(id)}" class="form-grid product-edit-form" data-product-editor><div class="product-edit-heading"><span>Thông tin sản phẩm</span><small>Cập nhật tên, giá, mô tả hoặc ảnh sản phẩm.</small></div><label class="field">Tên<input name="name" value="${esc(item.name || "")}" required></label>${imageField("Ảnh sản phẩm", imageUrl)}<label class="field">Mã sản phẩm<input name="sku" value="${esc(variant.sku || "")}" required></label><label class="field">Giá bán<input name="retailPrice" type="number" min="0" value="${esc(variant.retailPrice ?? 0)}" required></label><label class="field">Giá gốc<input name="originalPrice" type="number" min="0" value="${esc(variant.originalPrice ?? variant.retailPrice ?? 0)}"></label><label class="field product-edit-description">Mô tả<textarea name="description">${esc(item.description || "")}</textarea></label><input type="hidden" name="variantId" value="${esc(variant.id || variant._id || "")}"><div class="product-edit-actions"><button class="btn" type="submit">LƯU THAY ĐỔI</button><button class="outline" type="button" data-product-editor-close>ĐÓNG</button></div><p class="form-message" role="status"></p></form></details>` : "Chỉ xem";
+          const edit = canWrite ? `<details class="product-edit"><summary>Chỉnh sửa</summary><form data-admin-action="update-product" data-id="${esc(id)}" class="form-grid product-edit-form" data-product-editor><div class="product-edit-heading"><span>Thông tin sản phẩm</span><small>Cập nhật tên, giá, mô tả hoặc ảnh sản phẩm.</small></div><label class="field">Tên<input name="name" value="${esc(item.name || "")}" required></label><label class="field">Mã sản phẩm<input name="sku" value="${esc(variant.sku || "")}" required></label><label class="field">Giá bán<input name="retailPrice" type="number" min="0" value="${esc(variant.retailPrice ?? 0)}" required></label><label class="field">Giá gốc<input name="originalPrice" type="number" min="0" value="${esc(variant.originalPrice ?? variant.retailPrice ?? 0)}"></label><label class="field product-edit-description">Mô tả<textarea name="description">${esc(item.description || "")}</textarea></label>${imageField("Ảnh sản phẩm", imageUrl)}<input type="hidden" name="variantId" value="${esc(variant.id || variant._id || "")}"><div class="product-edit-actions"><button class="btn" type="submit">LƯU THAY ĐỔI</button><button class="outline" type="button" data-product-editor-close>ĐÓNG</button></div><p class="form-message" role="status"></p></form></details>` : "Chỉ xem";
           const toggle = canWrite ? `<form data-admin-action="toggle-product" data-id="${esc(id)}"><input type="hidden" name="isActive" value="${item.isActive === false ? "true" : "false"}"><button class="outline" type="submit">${item.isActive === false ? "Mở bán" : "Ngừng bán"}</button><p class="form-message" role="status"></p></form>` : "";
           const actions = canWrite ? rowActions(`${edit}${toggle}`, `product-${id}`) : "—";
           return `<tr><td>${esc(item.name || item.productName || "—")} ${demo(item)}</td><td>${esc(item.brandName || brandNames.get(String(item.brandId)) || "—")}</td><td>${esc(item.categoryName || categoryNames.get(String(item.categoryId)) || "—")}</td><td>${money(variant.retailPrice ?? item.price ?? 0)}</td><td>${statusTag(item.isActive === false ? "inactive" : "active", item.isActive === false ? "Ngừng bán" : "Đang bán")}</td><td>${actions}</td></tr>`;
@@ -826,6 +854,20 @@
         host.innerHTML = `${canWrite ? importBlock("products", "Nhập sản phẩm từ file", "Tạo nhiều sản phẩm cùng lúc từ CSV hoặc JSON. Hệ thống sẽ đối chiếu mã sản phẩm, thương hiệu và danh mục trước khi ghi dữ liệu.") : ""}
         ${canWrite ? formBlock("Thêm sản phẩm", "create-product", `${formField("Tên sản phẩm", "name")}${formField("Mã sản phẩm phân loại", "sku")}${selectField("Thương hiệu", "brandId", brandOptions)}${selectField("Danh mục", "categoryId", categoryOptions)}${formField("Dung tích / phân loại", "volume", "text", false)}${formField("Giá gốc (₫)", "originalPrice", "number")}${formField("Giá bán lẻ (₫)", "retailPrice", "number")}${formField("Mô tả", "description", "textarea", false)}${imageField("Ảnh sản phẩm")}`, "Tạo sản phẩm") : ""}
           <section class="panel"><div class="section-head"><div><span class="eyebrow">DANH MỤC HIỆN HÀNH</span><h2>Sản phẩm</h2></div><span>${products.length} bản ghi</span></div>${products.length ? table(["Sản phẩm", "Thương hiệu", "Danh mục", "Giá", "Trạng thái", "Thao tác"], body) : "<p class='empty'>Chưa có sản phẩm từ máy chủ.</p>"}</section>`;
+        const productPanel = [...host.querySelectorAll("section.panel")].find((section) => section.querySelector("table"));
+        const productHeading = productPanel?.querySelector(".section-head");
+        if (productPanel && productHeading) {
+          const searchBar = root.document.createElement("div");
+          searchBar.className = "admin-product-search-bar";
+          searchBar.innerHTML = `<label class="admin-table-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg><input type="search" data-product-search placeholder="Tìm theo tên, thương hiệu, danh mục hoặc mã SKU" autocomplete="off" aria-label="Tìm sản phẩm"></label><span class="admin-product-search-count" data-product-search-count>${products.length} sản phẩm</span>`;
+          productHeading.insertAdjacentElement("afterend", searchBar);
+          const empty = root.document.createElement("p");
+          empty.className = "empty admin-product-search-empty";
+          empty.dataset.productSearchEmpty = "true";
+          empty.hidden = true;
+          empty.textContent = "Không tìm thấy sản phẩm phù hợp.";
+          productPanel.append(empty);
+        }
       });
     }
 
@@ -835,19 +877,23 @@
         const next = { pending: ["confirmed", "cancelled"], confirmed: ["processing", "cancelled"], processing: ["shipped", "cancelled"], shipped: ["delivered"], delivered: ["completed", "returned"] };
         const body = orders.map((item) => {
           const id = item.id || item._id, current = item.orderStatus || item.status || "pending";
+          const orderCode = item.orderCode || item.code || id || "—";
+          const customer = item.customerName || item.customer?.fullName || item.customer?.name || item.user?.email || "Khách chưa rõ";
+          const initials = String(customer).split(/\s+/).filter(Boolean).map((part) => part[0]).slice(-2).join("").toUpperCase() || "KH";
+          const amount = item.finalAmount ?? item.totalAmount ?? item.total ?? 0;
           const options = (next[current] || []).map((status) => `<option value="${status}">${esc(statusLabel(status))}</option>`).join("");
           const hasNext = Boolean(options);
           const update = hasNext ? `<button class="outline admin-record-action" type="button" data-admin-order-update aria-controls="admin-workflow-editor" aria-expanded="false" data-id="${esc(id)}" data-order-code="${esc(item.orderCode || item.code || id || "")}" data-status="${esc(current)}" data-next-statuses="${esc((next[current] || []).join(","))}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H5.5A1.5 1.5 0 0 0 4 5.5v14A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V5.5A1.5 1.5 0 0 0 18.5 4H16"/><path d="M9 3h6v4H9zM8 13h8m-8 4h5"/></svg><span>Cập nhật</span></button>` : "<span class='admin-muted-note'>—</span>";
           const details = `<button class="outline admin-order-detail-action" type="button" data-admin-order-detail="${esc(id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h7l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M14 3.5V8h4M9 12h6m-6 4h6"/></svg><span>Chi tiết & hóa đơn</span></button>`;
-          return `<tr><td>${esc(item.orderCode || item.code || id || "—")} ${demo(item)}</td><td>${esc(item.customerName || item.customer?.fullName || item.customer?.name || item.user?.email || "—")}</td><td>${money(item.finalAmount ?? item.totalAmount ?? item.total ?? 0)}</td><td>${statusTag(current)}</td><td><div class="admin-order-actions">${update}${details}</div></td></tr>`;
+          return `<tr class="admin-order-row"><td><div class="admin-order-code"><span class="admin-order-code-mark" aria-hidden="true">#</span><span><strong>${esc(orderCode)}</strong><small>Đơn hàng</small></span></div>${demo(item)}</td><td><div class="admin-order-customer"><span class="admin-order-avatar" aria-hidden="true">${esc(initials)}</span><span>${esc(customer)}</span></div></td><td><strong class="admin-order-total">${money(amount)}</strong></td><td><div class="admin-order-status">${statusTag(current)}</div></td><td><div class="admin-order-actions">${update}${details}</div></td></tr>`;
         }).join("");
-        host.innerHTML = `<section class="panel orders-panel admin-create-panel"><div class="admin-feature-panel-head"><div class="admin-create-heading"><span class="admin-create-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 4H5.5A1.5 1.5 0 0 0 4 5.5v14A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V5.5A1.5 1.5 0 0 0 18.5 4H16"/><path d="M9 3h6v4H9zM8 12h8m-8 4h5"/></svg></span><div><span class="eyebrow">XỬ LÝ ĐƠN</span><h2>Đơn hàng & hóa đơn</h2><p>Theo dõi trạng thái và tiến độ xử lý đơn hàng.</p></div></div><span class="admin-feature-panel-count">${orders.length} bản ghi</span></div>${orders.length ? table(["Mã đơn", "Khách hàng", "Tổng tiền", "Trạng thái", "Thao tác"], body) : "<p class='empty'>Chưa có đơn hàng từ máy chủ.</p>"}<div id="admin-order-detail"></div><p class="service">Đơn chuyển khoản sẽ được đối soát trước khi xác nhận thanh toán và phát hành hóa đơn.</p></section><div id="admin-workflow-editor"></div>`;
+        host.innerHTML = `<section class="panel orders-panel admin-create-panel"><div class="admin-feature-panel-head"><div class="admin-create-heading"><span class="admin-create-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 4H5.5A1.5 1.5 0 0 0 4 5.5v14A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V5.5A1.5 1.5 0 0 0 18.5 4H16"/><path d="M9 3h6v4H9zM8 12h8m-8 4h5"/></svg></span><div><span class="eyebrow">XỬ LÝ ĐƠN</span><h2>Đơn hàng & hóa đơn</h2><p>Theo dõi trạng thái và tiến độ xử lý đơn hàng.</p></div></div><span class="admin-feature-panel-count">${orders.length} bản ghi</span></div>${orders.length ? table(["Mã đơn", "Khách hàng", "Tổng tiền", "Trạng thái", "Thao tác"], body, "admin-orders-table") : "<p class='empty'>Chưa có đơn hàng từ máy chủ.</p>"}<div id="admin-order-detail"></div><p class="service">Đơn chuyển khoản sẽ được đối soát trước khi xác nhận thanh toán và phát hành hóa đơn.</p></section><div id="admin-workflow-editor"></div>`;
       });
     }
 
     async function customersView(query = {}) {
       const term = query.q || "";
-      const search = `<section class="panel form-panel admin-create-panel customer-search-panel"><div class="admin-create-heading"><span class="admin-create-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="10" cy="8" r="3.5"/><path d="M3.5 20a6.5 6.5 0 0 1 13 0M18 8v6m-3-3h6"/></svg></span><div><span class="eyebrow">HỒ SƠ KHÁCH HÀNG</span><h2>Tìm khách hàng</h2><p>Tìm nhanh hồ sơ theo tên, email hoặc số điện thoại.</p></div></div><form data-admin-search="customers" class="form-grid admin-create-form customer-search-form"><label class="field admin-create-wide"><span>Từ khóa tìm kiếm</span><span class="customer-search-control"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg><input name="q" value="${esc(term)}" type="search" placeholder="Nhập tên, email hoặc số điện thoại" autocomplete="off"></span></label><p class="customer-search-hint">Có thể để trống để xem toàn bộ danh sách khách hàng.</p><div class="admin-create-actions"><p class="form-message" role="status"></p><button class="btn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg><span>Tìm khách hàng</span></button></div></form></section>`;
+      const search = `<section class="panel form-panel admin-create-panel customer-search-panel"><div class="admin-create-heading"><span class="admin-create-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="10" cy="8" r="3.5"/><path d="M3.5 20a6.5 6.5 0 0 1 13 0M18 8v6m-3-3h6"/></svg></span><div><span class="eyebrow">HỒ SƠ KHÁCH HÀNG</span><h2>Tìm khách hàng</h2><p>Tìm nhanh hồ sơ theo tên, email hoặc số điện thoại.</p></div></div><form data-admin-search="customers" class="form-grid admin-create-form customer-search-form"><label class="field admin-create-wide"><span>Từ khóa tìm kiếm</span><span class="customer-search-control"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg><input name="q" data-customer-search value="${esc(term)}" type="search" placeholder="Nhập tên, email hoặc số điện thoại" autocomplete="off"></span></label><p class="customer-search-hint">Có thể để trống để xem toàn bộ danh sách khách hàng.</p><div class="admin-create-actions"><p class="form-message" role="status"></p><button class="btn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg><span>Tìm khách hàng</span></button></div></form></section>`;
       await listOrState(() => root.MBApi.admin.customers.list({ q: term, page: 1, limit: 100 }), (response) => {
         const items = rows(response);
         const body = items.map((item) => `<tr><td>${esc(item.fullName || "—")} ${demo(item)}</td><td>${esc(item.email || "—")}</td><td>${esc(item.phone || "—")}</td><td>${statusTag(item.membership?.tier || "bronze")}</td><td>${esc(item.membership?.pointsBalance ?? 0)}</td></tr>`).join("");
@@ -868,14 +914,22 @@
         const items = rows(response);
         const body = items.map((item) => {
           const id = item.id || item._id;
-          const edit = `<details class="knowledge-edit"><summary>Chỉnh sửa</summary><form data-admin-action="update-knowledge" data-id="${esc(id)}" class="form-grid">${knowledgeFields(item)}<div class="admin-create-actions"><p class="form-message" role="status"></p><button class="btn" type="submit">Lưu bài viết</button></div></form></details>`;
+          const edit = `<button class="outline knowledge-edit-trigger" type="button" data-knowledge-edit="${esc(id)}">Chỉnh sửa</button><template data-knowledge-editor="${esc(id)}"><form data-admin-action="update-knowledge" data-id="${esc(id)}" class="form-grid admin-dialog-form knowledge-edit-form"><div class="admin-dialog-heading"><span class="eyebrow">KHO TRI THỨC</span><h2>Chỉnh sửa bài viết</h2><p>Cập nhật tệp nội dung và trạng thái hiển thị cho chatbot.</p></div>${knowledgeFields(item)}<p class="form-message" role="status" aria-live="polite"></p><div class="admin-dialog-actions"><button class="outline" type="button" data-knowledge-dialog-close>Hủy</button><button class="btn" type="submit">Lưu bài viết</button></div></form></template>`;
           const toggle = `<form data-admin-action="knowledge-status" data-id="${esc(id)}"><input type="hidden" name="isPublished" value="${item.isPublished === false ? "true" : "false"}"><button class="outline" type="submit">${item.isPublished === false ? "Kích hoạt" : "Ẩn"}</button><p class="form-message" role="status"></p></form>`;
-          const actions = rowActions(`${edit}${toggle}`, `knowledge-${id}`);
+          const actions = rowActions(`${edit}${toggle}`, `knowledge-${id}`, { menuClass: "admin-knowledge-actions-menu" });
           const tagText = Array.isArray(item.tags) ? item.tags.join(", ") : item.tags || "—";
           return `<tr><td><strong>${esc(item.title || "—")}</strong><small class="knowledge-preview">${esc(String(item.content || "").slice(0, 140))}</small></td><td>${esc(item.category || "Chung")}</td><td>${esc(tagText)}</td><td>${statusTag(item.isPublished === false ? "inactive" : "active", item.isPublished === false ? "Đã ẩn" : "Đang dùng")}</td><td>${esc(item.updatedAt ? formatReportDate(item.updatedAt) : "—")}</td><td>${actions}</td></tr>`;
         }).join("");
         host.innerHTML = `${formBlock("Thêm bài viết hỗ trợ", "create-knowledge", knowledgeFields(), "Lưu bài viết")}
           <section class="panel admin-table-group"><div class="admin-table-group-heading"><div><span class="eyebrow">NỘI DUNG HỖ TRỢ GEMINI</span><h2>Kho tri thức</h2><p>Gemini chỉ dùng các bài viết đang hiển thị để trả lời khách hàng.</p></div><span>${items.length} bản ghi</span></div>${items.length ? table(["Bài viết", "Chuyên mục", "Nhãn", "Trạng thái", "Cập nhật", "Thao tác"], body) : "<p class='empty'>Chưa có bài viết hỗ trợ. Hãy thêm chính sách giao hàng, đổi trả hoặc chăm sóc da.</p>"}</section>`;
+      });
+    }
+
+    async function chatbotView() {
+      await listOrState(() => root.MBApi.admin.chatbot.get(), (response) => {
+        const settings = data(response) || {};
+        const apiState = settings.hasApiKey ? "Đã cấu hình khóa máy chủ" : "Chưa có API key trên máy chủ";
+        host.innerHTML = `<section class="panel admin-chatbot-settings-panel"><div class="admin-feature-panel-head"><div class="admin-create-heading"><span class="admin-create-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3h9A2.5 2.5 0 0 1 19 5.5v8a2.5 2.5 0 0 1-2.5 2.5H12l-4.5 4v-4H7.5A2.5 2.5 0 0 1 5 13.5z"/><path d="M8 9h.01M12 9h.01M16 9h.01"/></svg></span><div><span class="eyebrow">TRỢ LÝ KHÁCH HÀNG</span><h2>Cấu hình chatbot</h2><p>Điều khiển Gemini ở máy chủ và cho phép chatbot trả về thông tin sản phẩm thực tế.</p></div></div><span class="admin-feature-panel-count">${esc(apiState)}</span></div><form class="form-grid admin-chatbot-settings-form" data-admin-action="update-chatbot"><div class="admin-chatbot-settings-grid"><label class="field"><span>Mô hình Gemini</span><input name="model" value="${esc(settings.model || "gemini-3-flash-preview")}" maxlength="120" required><small>Ví dụ: gemini-3-flash-preview</small></label><label class="field"><span>API key Gemini</span><input name="apiKey" type="password" autocomplete="new-password" placeholder="Để trống để giữ khóa hiện tại"><small>Khóa chỉ gửi đến máy chủ và không hiển thị lại trên trình duyệt.</small></label></div><label class="field admin-chatbot-wide"><span>Lời chào mở đầu</span><textarea name="greeting" rows="3" maxlength="280">${esc(settings.greeting || "")}</textarea></label><div class="admin-chatbot-options admin-chatbot-wide"><label class="admin-inline-check"><input type="checkbox" name="enabled" value="true"${settings.enabled !== false ? " checked" : ""}> Bật chatbot cho khách hàng</label><label class="admin-inline-check"><input type="checkbox" name="showProducts" value="true"${settings.showProducts !== false ? " checked" : ""}> Hiển thị thẻ sản phẩm, giá, ảnh và tồn kho khi tư vấn</label></div><div class="admin-chatbot-status admin-chatbot-wide"><span class="status-dot ${settings.hasApiKey ? "is-ready" : "is-warning"}" aria-hidden="true"></span><div><strong>${esc(apiState)}</strong><p>Model đang dùng: <code>${esc(settings.model || "gemini-3-flash-preview")}</code>. Nội dung kho tri thức vẫn được quản lý ở mục Kho tri thức.</p></div></div><p class="form-message admin-chatbot-wide" role="status" aria-live="polite"></p><div class="admin-dialog-actions admin-chatbot-wide"><button class="btn" type="submit">Lưu cấu hình chatbot</button></div></form></section><section class="panel admin-chatbot-help"><div class="section-head"><div><span class="eyebrow">DỮ LIỆU TRẢ VỀ</span><h2>Chatbot hiển thị gì cho khách?</h2></div></div><div class="admin-chatbot-help-grid"><div><strong>Thông tin chính xác</strong><p>Gemini nhận dữ liệu từ kho tri thức và các sản phẩm đang hoạt động trong MongoDB.</p></div><div><strong>Thẻ sản phẩm</strong><p>Khi khách hỏi sản phẩm, chatbot có thể hiển thị ảnh, tên, thương hiệu, giá, SKU và số lượng khả dụng.</p></div><div><strong>An toàn API</strong><p>API key được mã hóa trước khi lưu và không được nhúng vào mã giao diện khách hàng.</p></div></div></section>`;
       });
     }
 
@@ -911,10 +965,12 @@
         const brandSection = showBrands
           ? `${editable ? importBlock("brands", "Nhập thương hiệu từ file", "Tạo nhiều thương hiệu từ CSV hoặc JSON với mã, đường dẫn và xuất xứ rõ ràng.") : ""}${editable ? formBlock("Thêm thương hiệu", "create-brand", `${formField("Tên thương hiệu", "name")}${formField("Mã thương hiệu", "code")}${formField("Đường dẫn", "slug", "text", false)}${formField("Xuất xứ", "origin", "text", false)}`, "Tạo thương hiệu") : ""}<section class="panel admin-table-group admin-catalog-panel"><div class="admin-table-group-heading"><div><span class="eyebrow">THƯƠNG HIỆU</span><h2>Thương hiệu</h2><p class="admin-table-group-description">Quản lý nhãn hàng, mã thương hiệu và trạng thái hiển thị.</p></div><span>${brands.length} bản ghi</span></div>${brands.length ? table(["Tên", "Mã", "Trạng thái", "Thao tác"], rowsFor(brands, "brands")) : "<p class='empty'>Chưa có thương hiệu.</p>"}</section>`
           : "";
+        const shippingSearchMarkup = `<div class="admin-shipping-search-bar"><label class="admin-table-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg><input type="search" data-shipping-search placeholder="Tìm theo tỉnh, thành phố hoặc mã vùng" autocomplete="off" aria-label="Tìm phí giao hàng"></label><span class="admin-product-search-count" data-shipping-search-count>${rates.length} bản ghi</span></div><p class="empty admin-shipping-search-empty" data-shipping-search-empty hidden>Không tìm thấy mức phí giao hàng phù hợp.</p>`;
         const storeSection = showStores
           ? `<section class="panel admin-table-group admin-catalog-panel"><div class="admin-table-group-heading"><div><span class="eyebrow">ĐIỂM BÁN</span><h2>Cửa hàng</h2><p class="admin-table-group-description">Danh sách điểm bán đang kết nối với hệ thống. Chọn dấu … để chỉnh sửa.</p></div><span>${stores.length} bản ghi</span></div>${stores.length ? table(["Cửa hàng", "Địa chỉ", "Trạng thái", "Thao tác"], storeRows) : "<p class='empty'>Chưa có cửa hàng.</p>"}</section>${editable ? importBlock("shipping-rates", "Nhập phí giao hàng từ file", "Tạo nhiều mức phí theo tỉnh / thành phố từ CSV hoặc JSON. Mã khu vực có thể bỏ trống để tự tạo.") : ""}${editable ? formBlock("Thêm phí giao hàng", "create-shipping-rate", shippingRateFields(), "Tạo mức phí") : ""}<section class="panel"><div class="section-head"><div><span class="eyebrow">PHÍ VẬN CHUYỂN</span><h2>Phí giao hàng</h2><p class="admin-table-group-description">Mức phí giao hàng theo từng tỉnh / thành phố.</p></div><span>${rates.length} bản ghi</span></div>${rates.length ? table(["Tỉnh / thành phố", "Phí giao hàng (₫)", "Trạng thái", "Thao tác"], rateRows) : "<p class='empty'>Chưa có mức phí giao hàng.</p>"}</section>`
           : "";
-        host.innerHTML = `${categorySection}${brandSection}${storeSection}`;
+        const renderedStoreSection = storeSection.replace(/(<span class="eyebrow">PHÍ VẬN CHUYỂN<\/span><h2>Phí giao hàng<\/h2>[\s\S]*?<\/div><span>\d+ bản ghi<\/span><\/div>)/, `$1${shippingSearchMarkup}`);
+        host.innerHTML = `${categorySection}${brandSection}${renderedStoreSection}`;
       });
     }
 
@@ -953,6 +1009,20 @@
         host.innerHTML = `${importBlock("inventory", "Nhập phiếu nhập kho từ file", "Ghi nhận nhiều dòng nhập kho từ CSV hoặc JSON theo cửa hàng, mã sản phẩm và số lượng.")}
           ${formBlock("Phiếu nhập kho", "stock-receipt", `${selectField("Cửa hàng", "storeId", storeOptions)}${selectField("Sản phẩm / phân loại", "variantId", variantOptions)}${formField("Số lượng nhập", "quantity", "number")}${formField("Đơn giá nhập (₫)", "unitCost", "number", false)}${formField("Ghi chú", "note", "text", false)}`, "Ghi nhận nhập kho")}
           <section class="panel"><div class="section-head"><div><span class="eyebrow">SỐ LIỆU TỪ KHO</span><h2>Tồn kho khả dụng</h2></div><span>${items.length} bản ghi</span></div>${items.length ? table(["Sản phẩm", "Mã sản phẩm", "Cửa hàng", "Tồn", "Đã giữ", "Khả dụng", "Thao tác"], body) : "<p class='empty'>Chưa có số liệu tồn kho.</p>"}</section>`;
+        const inventoryPanel = [...host.querySelectorAll("section.panel")].find((section) => section.querySelector("table"));
+        const inventoryHeading = inventoryPanel?.querySelector(".section-head");
+        if (inventoryPanel && inventoryHeading) {
+          const searchBar = root.document.createElement("div");
+          searchBar.className = "admin-inventory-search-bar";
+          searchBar.innerHTML = `<label class="admin-table-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg><input type="search" data-inventory-search placeholder="Tìm theo sản phẩm, mã sản phẩm hoặc cửa hàng" autocomplete="off" aria-label="Tìm tồn kho"></label><span class="admin-product-search-count" data-inventory-search-count>${items.length} bản ghi</span>`;
+          inventoryHeading.insertAdjacentElement("afterend", searchBar);
+          const empty = root.document.createElement("p");
+          empty.className = "empty admin-inventory-search-empty";
+          empty.dataset.inventorySearchEmpty = "true";
+          empty.hidden = true;
+          empty.textContent = "Không tìm thấy dữ liệu tồn kho phù hợp.";
+          inventoryPanel.append(empty);
+        }
       });
     }
 
@@ -1303,7 +1373,9 @@
       const message = form.querySelector(".form-message");
       const button = form.querySelector("[type=submit]");
       const destructive = ["remove-product", "remove-promotion", "remove-voucher", "remove-catalog", "remove-shipping-rate"].includes(action);
-      const confirmMessage = "Thao tác này sẽ ẩn bản ghi khỏi hoạt động. Bạn có chắc chắn không?";
+      const confirmMessage = action === "remove-product"
+        ? "Sản phẩm sẽ được xóa khỏi danh sách bán và chuyển sang trạng thái Ngừng bán. Bạn có chắc chắn không?"
+        : "Thao tác này sẽ ẩn bản ghi khỏi hoạt động. Bạn có chắc chắn không?";
       if (destructive && typeof root.confirm === "function" && !root.confirm(confirmMessage)) return;
       if (destructive && typeof root.confirm !== "function" && typeof root.window?.confirm === "function" && !root.window.confirm(confirmMessage)) return;
       button.disabled = true;
@@ -1340,6 +1412,11 @@
           else await root.MBApi.admin.knowledge.update(form.dataset.id, payload);
         }
         else if (action === "knowledge-status") await root.MBApi.admin.knowledge.update(form.dataset.id, { isPublished: booleanValue(values.isPublished) });
+        else if (action === "update-chatbot") {
+          const payload = { model: values.model, greeting: values.greeting, enabled: booleanValue(values.enabled), showProducts: booleanValue(values.showProducts) };
+          if (values.apiKey?.trim()) payload.apiKey = values.apiKey.trim();
+          await root.MBApi.admin.chatbot.update(payload);
+        }
           else if (action === "create-category") await root.MBApi.admin.catalog.create("categories", crudActionPayload(action, values));
           else if (action === "create-brand") await root.MBApi.admin.catalog.create("brands", crudActionPayload(action, values));
         else if (action === "catalog-status") await root.MBApi.admin.catalog.update(form.dataset.kind, form.dataset.id, crudActionPayload(action, values));
@@ -1373,6 +1450,76 @@
       if (!form) return;
       event.preventDefault();
       await submitAction(form);
+    });
+    host.addEventListener("input", (event) => {
+      const customerSearch = event.target.closest?.("[data-customer-search]");
+      if (customerSearch) {
+        const panel = host.querySelector(".customer-results");
+        const customerRows = panel ? [...panel.querySelectorAll("table tbody tr")] : [];
+        const term = normalizeSearchText(customerSearch.value);
+        customerRows.forEach((row) => { row.hidden = Boolean(term) && !normalizeSearchText(row.textContent).includes(term); });
+        return;
+      }
+      const productSearch = event.target.closest?.("[data-product-search]");
+      if (productSearch) {
+        const panel = productSearch.closest("section.panel");
+        const productRows = panel ? [...panel.querySelectorAll("table tbody tr")] : [];
+        const term = normalizeSearchText(productSearch.value);
+        let visible = 0;
+        productRows.forEach((row) => {
+          const matches = !term || normalizeSearchText(row.textContent).includes(term);
+          row.hidden = !matches;
+          if (matches) visible += 1;
+        });
+        const count = panel?.querySelector("[data-product-search-count]");
+        if (count) count.textContent = term ? `${visible} / ${productRows.length} sản phẩm` : `${productRows.length} sản phẩm`;
+        const empty = panel?.querySelector("[data-product-search-empty]");
+      if (empty) empty.hidden = !term || visible > 0;
+        return;
+      }
+      const shippingSearch = event.target.closest?.("[data-shipping-search]");
+      if (shippingSearch) {
+        const panel = shippingSearch.closest("section.panel");
+        const shippingRows = panel ? [...panel.querySelectorAll("table tbody tr")] : [];
+        const term = normalizeSearchText(shippingSearch.value);
+        let visible = 0;
+        shippingRows.forEach((row) => {
+          const matches = !term || normalizeSearchText(row.textContent).includes(term);
+          row.hidden = !matches;
+          if (matches) visible += 1;
+        });
+        const count = panel?.querySelector("[data-shipping-search-count]");
+        if (count) count.textContent = term ? `${visible} / ${shippingRows.length} bản ghi` : `${shippingRows.length} bản ghi`;
+        const empty = panel?.querySelector("[data-shipping-search-empty]");
+        if (empty) empty.hidden = !term || visible > 0;
+        return;
+      }
+      const inventorySearch = event.target.closest?.("[data-inventory-search]");
+      if (inventorySearch) {
+        const panel = inventorySearch.closest("section.panel");
+        const inventoryRows = panel ? [...panel.querySelectorAll("table tbody tr")] : [];
+        const term = normalizeSearchText(inventorySearch.value);
+        let visible = 0;
+        inventoryRows.forEach((row) => {
+          const matches = !term || normalizeSearchText(row.textContent).includes(term);
+          row.hidden = !matches;
+          if (matches) visible += 1;
+        });
+        const count = panel?.querySelector("[data-inventory-search-count]");
+        if (count) count.textContent = term ? `${visible} / ${inventoryRows.length} bản ghi` : `${inventoryRows.length} bản ghi`;
+        const empty = panel?.querySelector("[data-inventory-search-empty]");
+        if (empty) empty.hidden = !term || visible > 0;
+        return;
+      }
+      const search = event.target.closest?.("[data-variant-search]");
+      if (!search) return;
+      const select = search.closest(".admin-multi-select")?.querySelector('select[name="variantIds"]');
+      if (!select) return;
+      const term = normalizeSearchText(search.value);
+      [...select.options].forEach((option) => {
+        const matches = !term || option.selected || normalizeSearchText(option.textContent).includes(term);
+        option.hidden = !matches;
+      });
     });
    host.addEventListener("change", (event) => {
       const imageInput = event.target.closest("[data-image-input]");
@@ -1436,6 +1583,22 @@
         closeEditor.closest("details")?.removeAttribute("open");
         return;
       }
+      const knowledgeEditButton = event.target.closest("[data-knowledge-edit]");
+      if (knowledgeEditButton) {
+        const template = knowledgeEditButton.closest(".admin-row-actions-menu")?.querySelector("template[data-knowledge-editor]");
+        if (!template) return;
+        const dialog = root.document.createElement("dialog");
+        dialog.className = "admin-dialog admin-knowledge-dialog";
+        dialog.innerHTML = template.innerHTML;
+        host.append(dialog);
+        const close = () => { if (dialog.isConnected) dialog.remove(); };
+        dialog.addEventListener("close", close, { once: true });
+        dialog.querySelector("[data-knowledge-dialog-close]")?.addEventListener("click", () => dialog.close());
+        dialog.addEventListener("click", (dialogEvent) => { if (dialogEvent.target === dialog) dialog.close(); });
+        dialog.showModal();
+        dialog.querySelector("[data-knowledge-file]")?.focus();
+        return;
+      }
      if (event.target.closest("[data-admin-retry]")) renderView();
       const demoButton = event.target.closest("[data-demo-email]");
       if (demoButton) {
@@ -1471,6 +1634,7 @@
       try {
         const user = data(await root.MBApi.auth.me()) || {};
         currentRole = pickRole(user);
+        currentUserId = String(user.id || user._id || "");
         if (!params.has("view")) view = defaultView(currentRole);
         syncNav();
         const staffName = user.fullName || user.name || user.email || "Nhân viên";
