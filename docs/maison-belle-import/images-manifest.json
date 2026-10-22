@@ -5,83 +5,105 @@
   "files": [
     {
       "sku": "COCOON-BODY-CF200",
-      "imageUrl": "/img/products/cocoon-body-cf200.png"
+      "imageUrl": "/img/products/cocoon-body-cf200.png",
+      "packagePath": "images/cocoon-body-cf200.png"
     },
     {
       "sku": "COCOON-BODY-BD500",
-      "imageUrl": "/img/products/cocoon-body-bd500.png"
+      "imageUrl": "/img/products/cocoon-body-bd500.png",
+      "packagePath": "images/cocoon-body-bd500.png"
     },
     {
       "sku": "DOVE-BODY-SCRUB280",
-      "imageUrl": "/img/products/dove-body-scrub280.png"
+      "imageUrl": "/img/products/dove-body-scrub280.png",
+      "packagePath": "images/dove-body-scrub280.png"
     },
     {
       "sku": "DOVE-BODY-PUMPKIN20",
-      "imageUrl": "/img/products/dove-body-pumpkin20.png"
+      "imageUrl": "/img/products/dove-body-pumpkin20.png",
+      "packagePath": "images/dove-body-pumpkin20.png"
     },
     {
       "sku": "PURITE-BODY-ROSE850",
-      "imageUrl": "/img/products/purite-body-rose850.png"
+      "imageUrl": "/img/products/purite-body-rose850.png",
+      "packagePath": "images/purite-body-rose850.png"
     },
     {
       "sku": "NIVEA-BODY-NIGHT350",
-      "imageUrl": "/img/products/nivea-body-night350.png"
+      "imageUrl": "/img/products/nivea-body-night350.png",
+      "packagePath": "images/nivea-body-night350.png"
     },
     {
       "sku": "OUHOE-SUN-ALOE50",
-      "imageUrl": "/img/products/ouhoe-sun-aloe50.png"
+      "imageUrl": "/img/products/ouhoe-sun-aloe50.png",
+      "packagePath": "images/ouhoe-sun-aloe50.png"
     },
     {
       "sku": "CERAVE-SUN-SPF50",
-      "imageUrl": "/img/products/cerave-sun-spf50.png"
+      "imageUrl": "/img/products/cerave-sun-spf50.png",
+      "packagePath": "images/cerave-sun-spf50.png"
     },
     {
       "sku": "LRP-SUN-UVMUNE50",
-      "imageUrl": "/img/products/lrp-sun-uvmune50.png"
+      "imageUrl": "/img/products/lrp-sun-uvmune50.png",
+      "packagePath": "images/lrp-sun-uvmune50.png"
     },
     {
       "sku": "KLAIRS-CREAM-BLUE30",
-      "imageUrl": "/img/products/klairs-cream-blue30.png"
+      "imageUrl": "/img/products/klairs-cream-blue30.png",
+      "packagePath": "images/klairs-cream-blue30.png"
     },
     {
       "sku": "COSRX-CREAM-SNAIL100",
-      "imageUrl": "/img/products/cosrx-cream-snail100.png"
+      "imageUrl": "/img/products/cosrx-cream-snail100.png",
+      "packagePath": "images/cosrx-cream-snail100.png"
     },
     {
       "sku": "LRP-CREAM-B5PLUS40",
-      "imageUrl": "/img/products/lrp-cream-b5plus40.png"
+      "imageUrl": "/img/products/lrp-cream-b5plus40.png",
+      "packagePath": "images/lrp-cream-b5plus40.png"
     },
     {
       "sku": "CERAVE-CREAM-DRY340",
-      "imageUrl": "/img/products/cerave-cream-dry340.png"
+      "imageUrl": "/img/products/cerave-cream-dry340.png",
+      "packagePath": "images/cerave-cream-dry340.png"
     },
     {
       "sku": "COSRX-ESS-SNAIL100",
-      "imageUrl": "/img/products/cosrx-ess-snail100.png"
+      "imageUrl": "/img/products/cosrx-ess-snail100.png",
+      "packagePath": "images/cosrx-ess-snail100.png"
     },
     {
       "sku": "LRP-SERUM-MELAB330",
-      "imageUrl": "/img/products/lrp-serum-melab330.png"
+      "imageUrl": "/img/products/lrp-serum-melab330.png",
+      "packagePath": "images/lrp-serum-melab330.png"
     },
     {
       "sku": "TO-SERUM-NIA10ZINC1",
-      "imageUrl": "/img/products/to-serum-nia10zinc1.png"
+      "imageUrl": "/img/products/to-serum-nia10zinc1.png",
+      "packagePath": "images/to-serum-nia10zinc1.png"
     },
     {
       "sku": "DOVE-BODY-MINI50",
-      "imageUrl": "/img/products/dove-body-mini50.png"
+      "imageUrl": "/img/products/dove-body-mini50.png",
+      "packagePath": "images/dove-body-mini50.png"
     },
     {
       "sku": "LRP-CREAM-B5TUBE40",
-      "imageUrl": "/img/products/lrp-cream-b5tube40.png"
+      "imageUrl": "/img/products/lrp-cream-b5tube40.png",
+      "packagePath": "images/lrp-cream-b5tube40.png"
     },
     {
       "sku": "TO-SERUM-BOTTLE30",
-      "imageUrl": "/img/products/to-serum-bottle30.png"
+      "imageUrl": "/img/products/to-serum-bottle30.png",
+      "packagePath": "images/to-serum-bottle30.png"
     },
     {
       "sku": "LRP-SERUM-BOTTLE30",
-      "imageUrl": "/img/products/lrp-serum-bottle30.png"
+      "imageUrl": "/img/products/lrp-serum-bottle30.png",
+      "packagePath": "images/lrp-serum-bottle30.png"
     }
-  ]
+  ],
+  "packageImageDirectory": "images/",
+  "runtimeImageDirectory": "/img/products"
 }
